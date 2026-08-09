@@ -1,0 +1,154 @@
+import type { Game } from '../Game';
+import type { SwordAgent } from '../simulation/SwordAgent';
+import { el } from '../utils/dom';
+import { openModal } from './modals';
+import { drawSwordIcon } from './swordIcon';
+import { ELEMENT_LABEL, strategyLabel } from '../simulation/Genetics';
+import { affixDesc, affixName } from '../data/AffixDB';
+import { TICKS_PER_DAY, TICKS_PER_SHICHEN } from '../constants';
+
+const TIPS: Record<string, string> = {
+  锋锐: '攻伐之力：碰撞伤害 = 锋锐 − 敌方坚固×0.5（至少 1 点）。锋刃越利，日常维持耗神越多。',
+  坚固: '防御之体：削弱所受碰撞伤害，反震亦轻。剑体越沉，行动越耗精元。',
+  速度: '身法：越快则每次移动耗精元越多，但更易避战、追食。',
+  感知: '灵识：探查范围 = 感知×2 格，看得越远越少迷途。',
+  杀性: '好战之心：越高越主动寻敌；但须量力而行。',
+  策略: '合击者喜集群行动、遥相呼应；孤狼者独来独往、不愿近人。',
+  精元: '养分：移动、碰撞、分化皆耗精元，精元枯竭则剑体崩解。剑谱属性越高，每日维持耗神越多。',
+  剑体: '剑意之体：剑体归零则剑意消亡。',
+  存续: '自诞生起存活的时日（1 日 = 12 时辰，1 时辰 = 8 刻）。',
+  足迹: '踏足过的剑域格数。',
+  采气: '吞纳庚金之气的团数。',
+  历经: '经历过的碰撞战斗场数。',
+  击破: '击溃的敌方剑意数。',
+  剑子: '由己身分化衍生的后代剑意数。',
+  剑心: '感知 26 维 → 玄机 8 层 → 四向抉择 4 路，玄机暗藏。',
+  本命血脉: '出自你亲手种下的剑胚一脉，血统延续至今，是剑成鉴定的正主。',
+  外来剑意: '随剑潮涌入的游离之剑，非本命一脉，可为辅翼亦可为敌。',
+};
+
+/** 点击剑意：展示其剑谱 / 状态 / 剑心 (属性悬浮有解释) */
+export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => void): void {
+  const s = agent.state;
+  const body = el('div', 'sword-detail');
+
+  // 头部
+  const head = el('div', 'sd-head');
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  drawSwordIcon(canvas, s.genome.element);
+  const titleBox = el('div', 'sd-titlebox');
+  titleBox.appendChild(el('div', 'sd-title', `${ELEMENT_LABEL[s.genome.element]}行 · 第 ${s.generation} 代剑意`));
+  const originBadge = el('span', 'sd-origin tip' + (s.origin === 'seed' ? ' seed' : ''), s.origin === 'seed' ? '本命血脉' : '外来剑意');
+  originBadge.setAttribute('data-tip', TIPS[s.origin === 'seed' ? '本命血脉' : '外来剑意'] ?? '');
+  titleBox.appendChild(originBadge);
+  head.append(canvas, titleBox);
+  body.appendChild(head);
+
+  // 剑谱 (有效值，含词条加成)
+  body.appendChild(el('h3', 'section-title', '剑谱'));
+  const affixes = s.genome.affixes;
+  const AFFIX_NOTE: Record<string, string> = {
+    锋锐: affixes.includes('kill5') ? '含「斩念成性」锋锐 +1.5' : '',
+    坚固: affixes.includes('fight15') ? '含「百炼之体」坚固 +1.5' : '',
+    感知: affixes.includes('roam400') ? '含「游历万方」感知 +2' : '',
+  };
+  const genes: { label: string; value: number; base: number; max: number }[] = [
+    { label: '锋锐', value: s.genome.sharpness + (affixes.includes('kill5') ? 1.5 : 0), base: s.genome.sharpness, max: 10 },
+    { label: '坚固', value: s.genome.toughness + (affixes.includes('fight15') ? 1.5 : 0), base: s.genome.toughness, max: 10 },
+    { label: '速度', value: s.genome.speed, base: s.genome.speed, max: 10 },
+    { label: '感知', value: s.genome.perception + (affixes.includes('roam400') ? 2 : 0), base: s.genome.perception, max: 10 },
+    { label: '杀性', value: s.genome.aggression, base: s.genome.aggression, max: 1 },
+    { label: '策略', value: s.genome.strategy, base: s.genome.strategy, max: 1 },
+  ];
+  for (const g of genes) {
+    const bonus = g.value - g.base;
+    const display =
+      g.label === '策略'
+        ? strategyLabel(g.value)
+        : `${g.value.toFixed(1)}${bonus > 0.001 ? ` <em class="sd-bonus">+${bonus.toFixed(1)}</em>` : ''}`;
+    body.appendChild(barRow(g.label, display, g.value, g.max, AFFIX_NOTE[g.label] ?? ''));
+  }
+
+  // 词条 (带内联说明)
+  if (s.genome.affixes.length > 0) {
+    body.appendChild(el('h3', 'section-title', '词条'));
+    const affixBox = el('div', 'sd-affixes');
+    for (const a of s.genome.affixes) {
+      const item = el('div', 'sd-affix-item tip');
+      item.setAttribute('data-tip', affixDesc(a));
+      item.append(
+        el('span', 'sd-affix-name', `「${affixName(a)}」`),
+        el('div', 'sd-affix-desc', affixDesc(a)),
+      );
+      affixBox.appendChild(item);
+    }
+    body.appendChild(affixBox);
+  }
+
+  // 状态
+  body.appendChild(el('h3', 'section-title', '状态'));
+  const b = agent.behavior;
+  let descendants = 0;
+  if (game.world) {
+    for (const v of game.world.lineage.values()) {
+      if (v.parentId === s.id) descendants++;
+    }
+  }
+  const status: [string, string][] = [
+    ['精元', `${s.energy.toFixed(0)} / 80`],
+    ['剑体', `${s.hp.toFixed(0)} / 100`],
+    ['存续', `${formatSurvival(s.age)}`],
+    ['足迹', `${b.cellsVisited} 格`],
+    ['采气', `${b.eatCount} 团`],
+    ['历经', `${b.attackCount} 战`],
+    ['击破', `${b.killCount} 敌`],
+    ['剑子', `${descendants} 柄`],
+  ];
+  const grid = el('div', 'sd-status');
+  for (const [k, v] of status) {
+    const item = el('div', 'sd-status-item tip');
+    item.setAttribute('data-tip', TIPS[k] ?? '');
+    item.append(el('span', 'sd-status-label', k), el('span', 'sd-status-value', v));
+    grid.appendChild(item);
+  }
+  body.appendChild(grid);
+
+  // 剑心
+  body.appendChild(el('h3', 'section-title', '剑心'));
+  const mind = el('div', 'sd-mind tip');
+  mind.setAttribute('data-tip', TIPS['剑心'] ?? '');
+  mind.appendChild(el('p', '', '感知 26 维 → 玄机 8 层 → 四向抉择 4 路'));
+  mind.appendChild(el('p', 'sd-mind-sub', '此剑之灵，玄机暗藏于万变之中。'));
+  body.appendChild(mind);
+
+  const overlay = openModal('剑意 · 灵鉴', body, {
+    width: 440,
+    onClose,
+  });
+}
+
+function barRow(label: string, display: string, value: number, max: number, affixNote = ''): HTMLElement {
+  const row = el('div', 'sd-bar-row tip');
+  const tip = (TIPS[label] ?? '') + (affixNote ? `（${affixNote}）` : '');
+  row.setAttribute('data-tip', tip);
+  const lab = el('span', 'sd-bar-label', label);
+  const track = el('div', 'sd-bar-track');
+  const fill = el('div', 'sd-bar-fill');
+  fill.style.width = `${Math.min(100, (value / max) * 100)}%`;
+  track.appendChild(fill);
+  const val = el('span', 'sd-bar-value', '');
+  val.innerHTML = display;
+  row.append(lab, track, val);
+  return row;
+}
+
+/** 存续时长：tick → 「X 日 Y 时辰」的修仙计时 */
+function formatSurvival(ticks: number): string {
+  const days = Math.floor(ticks / TICKS_PER_DAY);
+  const shichen = Math.floor((ticks % TICKS_PER_DAY) / TICKS_PER_SHICHEN);
+  if (days > 0) return `${days} 日 ${shichen} 时辰`;
+  return `${shichen} 时辰`;
+}
+

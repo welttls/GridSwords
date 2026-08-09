@@ -1,0 +1,19 @@
+{
+  "name": "sword-forge",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "《炼剑》——修仙题材放置·进化·模拟游戏 (SwordForge SRD v1.0)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pixi.js": "^7.4.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^4.5.3"
+  }
+}

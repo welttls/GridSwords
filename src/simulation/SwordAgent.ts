@@ -1,0 +1,411 @@
+import type { Genome, BehaviorStats } from '../types';
+import { SimpleNN } from './NeuralNet';
+import { World } from './World';
+import { resolveBattle } from './BattleResolver';
+import { mutateGenome, genomeChanged, ELEMENT_LABEL } from './Genetics';
+import { affixName } from '../data/AffixDB';
+import { toast } from '../ui/modals';
+import { eventBus, EVT } from '../utils/eventBus';
+import {
+  MAX_HP,
+  ENERGY_SPLIT_THRESHOLD,
+  BASE_ENERGY_CONSUMPTION,
+  IDLE_MULT,
+  HP_REGEN_PER_TICK,
+  DECISION_THRESHOLD,
+  MAX_PERCEPTION_RANGE,
+  GENE_MAX,
+  MUTATION_STRENGTH,
+} from '../constants';
+import { clamp, randomInt, shuffle } from '../utils/mathUtils';
+
+/** 8 方向：上下左右 + 四对角 */
+const DIRS = [
+  { dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+  { dx: -1, dy: -1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: 1, dy: 1 },
+];
+/** 输出层 4 方向索引 → DIRS 下标 (上/下/左/右) */
+const MOVES = [0, 1, 2, 3];
+/** 每个移动方向关联的感知方向 */
+const MOVE_DISCS = [
+  [0, 4, 5], // 上
+  [1, 6, 7], // 下
+  [2, 4, 6], // 左
+  [3, 5, 7], // 右
+];
+
+export class SwordAgent {
+  state: import('../types').SwordState;
+  brain: SimpleNN;
+  world: World;
+  behavior: BehaviorStats;
+  lastMoveDir = 0;
+
+  /** 宗门大比剑诀修饰 */
+  battleMods: {
+    firstStrike?: boolean;  // 首轮抢攻
+    counterStrike?: boolean; // 后手反击
+    agile?: boolean;        // 游斗
+    quick?: boolean;        // 快剑
+    thunder?: boolean;      // 雷引
+    noCost?: boolean;       // 斗剑台不耗能量
+  } = {};
+  counterReady = false;
+  /** 本 tick 是否有所行动 (移动/采气/碰撞)，影响精元消耗 */
+  private actedThisTick = false;
+
+  private visited = new Set<number>();
+
+  constructor(
+    state: import('../types').SwordState,
+    brain: SimpleNN,
+    world: World,
+  ) {
+    this.state = state;
+    this.brain = brain;
+    this.world = world;
+    this.behavior = {
+      eatCount: 0,
+      attackCount: 0,
+      killCount: 0,
+      moveCount: 0,
+      waitCount: 0,
+      cellsVisited: 0,
+      minHp: MAX_HP,
+      fightsSurvived: 0,
+    };
+    this.visitCurrent();
+  }
+
+  private cellIndex(x: number, y: number): number {
+    return y * this.world.config.width + x;
+  }
+
+  private visitCurrent(): void {
+    const k = this.cellIndex(this.state.position.x, this.state.position.y);
+    if (!this.visited.has(k)) {
+      this.visited.add(k);
+      this.behavior.cellsVisited = this.visited.size;
+    }
+  }
+
+  /** 感知：8方向 * (庚金/剑意/墙) + 自身精元比 + 剑体比 = 26 输入 */
+  perceive(): number[] {
+    const input: number[] = [];
+    const perc = this.state.genome.perception + (this.state.genome.affixes.includes('roam400') ? 2 : 0);
+    const range = clamp(Math.round(perc * 2), 2, MAX_PERCEPTION_RANGE);
+    const pos = this.state.position;
+    for (const d of DIRS) {
+      let foodNear = 0;
+      let swordNear = 0;
+      let wallNear = 0;
+      for (let s = 1; s <= range; s++) {
+        const x = pos.x + d.dx * s;
+        const y = pos.y + d.dy * s;
+        if (!this.world.inBounds(x, y) || this.world.isWall(x, y)) {
+          wallNear = 1 - s / (range + 1);
+          break;
+        }
+        if (foodNear === 0 && this.world.foodAt(x, y) > 0) foodNear = 1 - s / (range + 1);
+        if (swordNear === 0 && this.world.swordIdAt(x, y)) swordNear = 1 - s / (range + 1);
+      }
+      input.push(foodNear, swordNear, wallNear);
+    }
+    input.push(clamp(this.state.energy / ENERGY_SPLIT_THRESHOLD, 0, 1));
+    input.push(clamp(this.state.hp / MAX_HP, 0, 1));
+    return input;
+  }
+
+  /** 饥饿度：始终带饿意觅食，直到满灵力分化 */
+  private hungerLevel(): number {
+    return clamp(1.1 - this.state.energy / ENERGY_SPLIT_THRESHOLD, 0, 1.1);
+  }
+
+  /** 全盘扫描：寻找最近的指定目标 (曼哈顿距离) */
+  private nearestTarget(type: 'food' | 'sword'): { dx: number; dy: number; dist: number } | null {
+    const hunger = this.hungerLevel();
+    const baseRange = clamp(Math.round(this.state.genome.perception * 2), 2, 10);
+    const huntBonus = type === 'food' && hunger > 0.6 ? 10 : 0; // 极度饥饿时扩大搜寻半径
+    const range = Math.min(MAX_PERCEPTION_RANGE, baseRange + huntBonus);
+    const pos = this.state.position;
+    let best: { dx: number; dy: number; dist: number } | null = null;
+    for (let dy = -range; dy <= range; dy++) {
+      for (let dx = -range; dx <= range; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const x = pos.x + dx;
+        const y = pos.y + dy;
+        if (!this.world.inBounds(x, y) || this.world.isWall(x, y)) continue;
+        const found = type === 'food' ? this.world.foodAt(x, y) > 0 : this.world.swordIdAt(x, y) !== null;
+        if (found) {
+          const dist = Math.abs(dx) + Math.abs(dy);
+          if (!best || dist < best.dist) best = { dx, dy, dist };
+        }
+      }
+    }
+    return best;
+  }
+
+  /** 将偏移映射到 4 方向 (0上 1下 2左 3右) */
+  private dirTo(dx: number, dy: number): number {
+    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 3 : 2;
+    return dy > 0 ? 1 : 0;
+  }
+
+  /** 本能偏置：基因驱动的先天行为 (饥饿追食 / 好战逐敌 / 伤重避战) */
+  private instinctBias(input: number[]): number[] {
+    const bias = [0, 0, 0, 0];
+    const hpRatio = input[25];
+    const aggr = this.world.effectiveAggression(this.state.genome.aggression);
+
+    // 饥饿驱力：全盘扫描最近食物
+    const hunger = this.hungerLevel();
+    const food = this.nearestTarget('food');
+    if (food) {
+      const closeness = clamp(1 - food.dist / (MAX_PERCEPTION_RANGE + 1), 0.35, 1);
+      bias[this.dirTo(food.dx, food.dy)] += hunger * 0.7 * closeness;
+    }
+
+    // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力)
+    const enemy = this.nearestTarget('sword');
+    if (enemy && aggr > 0.5 && enemy.dist <= 6 && hpRatio > 0.35) {
+      const closeness = clamp(1 - enemy.dist / 7, 0.35, 1);
+      bias[this.dirTo(enemy.dx, enemy.dy)] += aggr * 0.7 * closeness;
+    }
+
+    // 恐惧本能：生命低时远离剑意 (反方向)
+    if (enemy && hpRatio < 0.45) {
+      bias[this.dirTo(enemy.dx, enemy.dy) ^ 1] += (1 - hpRatio) * 0.7;
+    }
+
+    // 策略本能：合击者近众，孤狼者独行
+    const strat = this.state.genome.strategy;
+    if (enemy && enemy.dist <= 8) {
+      const closeness = clamp(1 - enemy.dist / 9, 0.3, 1);
+      if (strat >= 0.65) {
+        bias[this.dirTo(enemy.dx, enemy.dy)] += (strat - 0.5) * 0.55 * closeness;
+      } else if (strat <= 0.35) {
+        bias[this.dirTo(enemy.dx, enemy.dy) ^ 1] += (0.5 - strat) * 0.55 * closeness;
+      }
+    }
+
+    return bias;
+  }
+
+  /** 无明确意图时的游荡：优先朝最近食物 (全盘扫描)，否则随机 */
+  private wanderChoice(_input: number[]): number {
+    const food = this.nearestTarget('food');
+    if (food) return this.dirTo(food.dx, food.dy);
+    return randomInt(0, 3);
+  }
+
+  /** 决策：剑心输出 + 本能偏置 → 取最大方向；均低于阈值则游荡觅食 */
+  decide(): number {
+    const input = this.perceive();
+    let out = this.brain.forward(input);
+    const bias = this.instinctBias(input);
+    out = out.map((v, i) => v + bias[i]);
+
+    let best = -1;
+    let bestVal = DECISION_THRESHOLD;
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] > bestVal) {
+        bestVal = out[i];
+        best = i;
+      }
+    }
+    if (best < 0) best = this.wanderChoice(input);
+    this.lastMoveDir = best;
+    return best;
+  }
+
+  /** 有效锋锐 (受剑诀/词条影响) */
+  effectiveSharpness(): number {
+    let s = this.state.genome.sharpness;
+    if (this.state.genome.affixes.includes('kill5')) s += 1.5; // 斩念成性
+    if (this.battleMods.firstStrike && this.world.tickCounter < 50) s *= 1.2;
+    if (this.battleMods.agile) s *= 0.9;
+    if (this.battleMods.quick) s *= 1.1;
+    if (this.battleMods.thunder) s *= 1.15;
+    if (this.counterReady) s *= 1.5;
+    return s;
+  }
+
+  /** 有效坚固 (受词条影响) */
+  effectiveToughness(): number {
+    let t = this.state.genome.toughness;
+    if (this.state.genome.affixes.includes('fight15')) t += 1.5; // 百炼之体
+    return t;
+  }
+
+  /** 行动：移动/吃/战斗；目标被阻挡则尝试其他方向，避免卡墙 */
+  act(dir: number): void {
+    const d = MOVES[dir];
+    const x = this.state.position.x + DIRS[d].dx;
+    const y = this.state.position.y + DIRS[d].dy;
+    if (this.world.inBounds(x, y) && !this.world.isWall(x, y)) {
+      this.performMoveTo(x, y);
+      return;
+    }
+    for (const alt of shuffle([0, 1, 2, 3])) {
+      const ad = MOVES[alt];
+      const ax = this.state.position.x + DIRS[ad].dx;
+      const ay = this.state.position.y + DIRS[ad].dy;
+      if (this.world.inBounds(ax, ay) && !this.world.isWall(ax, ay)) {
+        this.performMoveTo(ax, ay);
+        return;
+      }
+    }
+    this.behavior.waitCount++;
+  }
+
+  private performMoveTo(x: number, y: number): void {
+    this.state.facing = { x: x - this.state.position.x, y: y - this.state.position.y };
+    this.actedThisTick = true; // 移动/采气/碰撞皆耗精元
+
+    const food = this.world.foodAt(x, y);
+    if (food > 0) {
+      this.world.removeFood(x, y);
+      this.state.energy += food;
+      this.behavior.eatCount++;
+      this.world.moveSword(this, x, y);
+      this.visitCurrent();
+      return;
+    }
+
+    const otherId = this.world.swordIdAt(x, y);
+    if (otherId) {
+      const defender = this.world.swords.get(otherId);
+      if (defender) {
+        this.behavior.attackCount++;
+        const result = resolveBattle(this, defender);
+        this.counterReady = false; // 反击只生效一次
+        // 淬毒：命中之敌剑体持续溃烂
+        if (this.state.genome.affixes.includes('poison')) {
+          defender.state.poisonDmg = 1;
+          defender.state.poisonTicks = 30;
+        }
+        if (result.defenderDied) {
+          this.behavior.killCount++;
+          // 寄灵：击败者被寄灵化为己方剑子 (罕见能力)
+          if (this.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
+            const converted = this.world.spawnParasite(this, x, y);
+            if (!converted) {
+              const corpseValue = Math.max(4, defender.state.energy * 0.4);
+              this.world.spawnCorpseFood(x, y, corpseValue);
+            }
+          } else {
+            // 敌方尸身化食：陨落之剑化为庚金之气
+            const corpseValue = Math.max(4, defender.state.energy * 0.4);
+            this.world.spawnCorpseFood(x, y, corpseValue);
+          }
+          this.world.moveSword(this, x, y);
+          this.visitCurrent();
+        } else {
+          this.behavior.waitCount++; // 反震退回原位
+        }
+      }
+      return;
+    }
+
+    this.world.moveSword(this, x, y);
+    this.behavior.moveCount++;
+    this.visitCurrent();
+  }
+
+  /** 每 tick 一步 */
+  tick(): void {
+    this.state.age++;
+    this.actedThisTick = false;
+    this.recheckAffixes();
+    const dir = this.decide();
+    this.act(dir);
+
+    const mods = this.world.modifiers;
+    // 剑谱越强，日常维持耗神越多：锋刃之利、剑体之沉、身法之疾皆耗精元
+    const g = this.state.genome;
+    let cost =
+      BASE_ENERGY_CONSUMPTION * (1 + (g.speed + mods.speedBonus) * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
+    cost *= this.actedThisTick ? 1 : IDLE_MULT; // 静养耗精元大减
+    if (mods.temperature === 'cold') cost *= 1.5;
+    if (mods.temperature === 'breeze') cost *= 0.6;
+    if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
+    if (this.battleMods.agile) cost *= 0.5;   // 游斗：身法灵动
+    if (this.battleMods.quick) cost *= 0.8;   // 快剑：举重若轻
+    if (!this.battleMods.noCost) this.state.energy -= cost;
+
+    // 缓慢回气
+    this.state.hp = Math.min(MAX_HP, this.state.hp + HP_REGEN_PER_TICK);
+    if (this.state.hp < this.behavior.minHp) this.behavior.minHp = this.state.hp;
+
+    // 中毒 (淬毒)：剑体持续溃烂
+    if ((this.state.poisonTicks ?? 0) > 0) {
+      this.state.hp -= this.state.poisonDmg ?? 1;
+      this.state.poisonTicks = (this.state.poisonTicks ?? 0) - 1;
+    }
+
+    // 雷劫 (雷劫液)：速度越慢越易被雷击
+    if (mods.thunderstorm && Math.random() < 0.03) {
+      const strikeChance = clamp(1 - this.state.genome.speed / GENE_MAX, 0.1, 1);
+      if (Math.random() < strikeChance) {
+        this.state.hp -= 25;
+        this.state.energy -= 12;
+      }
+    }
+
+    if (this.state.energy <= 0 || this.state.hp <= 0) {
+      this.die();
+      return;
+    }
+
+    // 能量达到阈值 → 分裂
+    if (this.state.energy >= ENERGY_SPLIT_THRESHOLD) {
+      this.trySplit();
+    }
+  }
+
+  /** 分裂 (繁衍) */
+  private trySplit(): void {
+    const rate = this.world.mutationRate;
+    const childGenome = mutateGenome(
+      this.state.genome,
+      rate,
+      MUTATION_STRENGTH,
+      this.world.mutationBiasRates(),
+    );
+    const childBrain = this.brain.clone();
+    childBrain.mutate(rate, MUTATION_STRENGTH);
+
+    const placed = this.world.spawnChild(this, childGenome, childBrain);
+    if (placed) {
+      this.state.energy = ENERGY_SPLIT_THRESHOLD / 2;
+      // 事件日志：元素突变 / 新世代
+      this.world.emitSplitEvents(this, childGenome, genomeChanged(this.state.genome, childGenome), placed);
+    }
+  }
+
+  die(): void {
+    this.world.removeSword(this.state.id);
+  }
+
+  /** 词条参悟：满足条件即固化，可遗传 */
+  private recheckAffixes(): void {
+    const g = this.state.genome;
+    const b = this.behavior;
+    const add = (id: string, rare: boolean) => {
+      if (g.affixes.includes(id)) return;
+      g.affixes.push(id);
+      eventBus.emit(EVT.LOG, {
+        text: `第${this.world.config.currentDay}日：一道剑意悟得「${affixName(id)}」！`,
+        focusId: this.state.id,
+        important: true,
+      });
+      if (rare) toast(`✨ 悟得稀有词条「${affixName(id)}」！`);
+    };
+    if (b.eatCount >= 30) add('eat30', false);
+    if (b.killCount >= 5) add('kill5', false);
+    if (b.fightsSurvived >= 15) add('fight15', false);
+    if (b.cellsVisited >= 400) add('roam400', false);
+    if (g.sharpness >= 7 && g.aggression >= 0.6) add('poison', true);
+    if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 5) add('parasite', true);
+  }
+}

@@ -1,0 +1,64 @@
+import type { Genome, Element } from './Genome';
+
+/**
+ * 剑意个体状态 (可序列化，用于存读档)。
+ * 神经网络的权重/偏置以扁平数组保存，便于变异与序列化。
+ */
+export interface SwordState {
+  id: string;
+  name: string;
+  genome: Genome;
+  brainWeights: number[];
+  brainBiases: number[];
+  /** 动态状态 */
+  energy: number;
+  hp: number;
+  /** 存活 tick 数 */
+  age: number;
+  birthTick: number;
+  position: { x: number; y: number };
+  /** 朝向 (渲染用) */
+  facing: { x: number; y: number };
+  /** 血统溯源 */
+  parentId: string;
+  generation: number;
+  /** 来源：seed=本命血脉(玩家剑胚一脉)，wild=外来剑意(每日剑潮) */
+  origin: 'seed' | 'wild';
+  /** 中毒状态 (淬毒词条，运行时) */
+  poisonDmg?: number;
+  poisonTicks?: number;
+}
+
+/** 行为标签 (用于剑成鉴定与评分) */
+export type BehaviorTag =
+  | '掠食者'    // 猎杀众多
+  | '噬金者'    // 大量吞噬庚金之气
+  | '苦行者'    // 生命从未低过
+  | '开拓者'    // 足迹遍布剑域
+  | '潜伏者'    // 极少移动却活到最后
+  | '雷劫生还者'; // 在天雷中存活
+
+/** 行为统计 (运行时，不序列化) */
+export interface BehaviorStats {
+  eatCount: number;
+  attackCount: number;
+  killCount: number;
+  moveCount: number;
+  waitCount: number;
+  cellsVisited: number;
+  minHp: number;
+  fightsSurvived: number;
+}
+
+/** 排行榜/名剑条目 */
+export interface RankedSword {
+  id: string;
+  name: string;
+  element: Element;
+  genome: Genome;
+  score: number;
+  tags: string[];
+  date: string;
+  dayReached: number;
+  wins: number;
+}
