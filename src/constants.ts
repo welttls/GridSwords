@@ -60,7 +60,7 @@ export const MAX_PERCEPTION_RANGE = 20; // 感知基因*2 的最大视野
 // ===== 宗门大比 =====
 export const ARENA_SIZE = 15;
 export const BATTLE_TICK_LIMIT = 600;
-export const BATTLE_TPS = 30;          // 大比战斗播放速率 (tick/秒)
+export const BATTLE_TPS = 20;          // 大比战斗播放速率 (tick/秒)，半即时制
 export const BATTLE_WIN_SCORE = 1000;
 export const BATTLE_LOSE_SCORE = 100;
 

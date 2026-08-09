@@ -7,7 +7,22 @@ export const EVT = {
   TRIBULATION_END: 'tribulation-end',
   BATTLE_END: 'battle-end',
   SAVE: 'save',
+  // —— 粒子事件 (仅渲染端监听，headless 无副作用) ——
+  BATTLE_HIT: 'battle-hit',         // 剑体碰撞火花
+  SPLIT: 'split',                   // 分化衍生灵光
+  DEATH: 'death',                   // 剑意陨落
+  EAT: 'eat',                       // 采气星屑
+  THUNDER: 'thunder',               // 天劫雷光
+  EMERGENCE: 'emergence',           // 涌现庆典
 } as const;
+
+/** 粒子事件负载 (网格坐标 + 五行) */
+export interface ParticleEvent {
+  x: number;
+  y: number;
+  element?: string;
+  intensity?: number;
+}
 
 /** 事件日志消息 (可带聚焦 / 重要标记) */
 export interface LogMessage {

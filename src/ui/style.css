@@ -262,24 +262,49 @@ canvas {
   flex: 1;
 }
 .canvas-host {
-  flex: 0 0 auto;
+  flex: 1 1 auto; /* 吃掉侧栏外的剩余空间 */
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
   background: #0c1017;
   line-height: 0;
 }
+/* 画布为替换元素：max-width/max-height 钳制 + aspect-ratio 保持正方形等比缩放
+   (width/height 需 !important 覆盖 Pixi 设置的内联 640px) */
 .canvas-host canvas {
-  width: 100%;
-  height: auto;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1 / 1;
 }
 
 .side-panel {
-  flex: 1;
+  flex: 0 1 340px; /* 优先 340px，可收缩到 min-width */
   min-width: 300px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* 窄屏 (手机 / 小窗)：竖排，画布在上、侧栏在下 */
+@media (max-width: 900px) {
+  .forge-main {
+    flex-direction: column;
+  }
+  .canvas-host {
+    flex: 0 0 auto;
+    height: 52vh; /* 定高，画布才可等比缩放 */
+    width: auto;
+  }
+  .side-panel {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
 }
 .panel-section {
   border: 1px solid var(--line);
@@ -741,6 +766,154 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* —— 决斗舞台 (左右双剑 · 半即时) —— */
+.duel-stage {
+  flex: 1;
+  min-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid rgba(217, 178, 106, 0.35);
+  border-radius: 12px;
+  background:
+    radial-gradient(600px 260px at 50% 0%, rgba(217, 178, 106, 0.08), transparent 70%),
+    var(--panel);
+  padding: 18px;
+}
+.duel-stage.hidden {
+  display: none;
+}
+.duel-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.duel-side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.duel-side canvas {
+  filter: drop-shadow(0 0 14px rgba(217, 178, 106, 0.4));
+}
+.duel-name {
+  font-size: 17px;
+  letter-spacing: 3px;
+  color: var(--ink);
+}
+.duel-title {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--gold-dim);
+}
+.duel-bar {
+  width: 100%;
+  max-width: 220px;
+  height: 12px;
+  border-radius: 6px;
+  background: #22262e;
+  border: 1px solid rgba(230, 225, 213, 0.12);
+  overflow: hidden;
+}
+.duel-bar.slim {
+  height: 7px;
+  margin-top: 2px;
+}
+.duel-bar.ap {
+  height: 5px;
+  margin-top: 2px;
+}
+.duel-fill {
+  height: 100%;
+  width: 100%;
+  background: #6fd08a;
+  transition: width 0.12s ease;
+}
+.duel-affixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  min-height: 20px;
+}
+.duel-affix {
+  font-size: 11px;
+  color: #ffd76a;
+  border: 1px solid rgba(255, 215, 106, 0.4);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+.duel-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+.duel-vs {
+  font-size: 42px;
+  color: var(--gold);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+.duel-vs-text {
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: var(--gold-dim);
+}
+.duel-log {
+  flex: 1;
+  min-height: 150px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid rgba(230, 225, 213, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.duel-log-line {
+  color: var(--ink-dim);
+  letter-spacing: 1px;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+}
+.duel-log-line.from-player {
+  color: var(--ink);
+  border-left-color: var(--gold);
+}
+.duel-log-line.crit {
+  color: #ffd76a;
+}
+.duel-log-line.thunder {
+  color: #9ac8ff;
+}
+.duel-log-line.poison {
+  color: #6fd08a;
+}
+.duel-log-line.end {
+  color: var(--gold);
+  font-weight: 600;
+}
+.duel-result {
+  text-align: center;
+  margin-top: 4px;
+}
+.duel-result.hidden {
+  display: none;
 }
 .result-hint {
   color: var(--ink-dim);

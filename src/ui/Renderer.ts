@@ -2,14 +2,26 @@ import { Container, Graphics } from 'pixi.js';
 import type { World } from '../simulation/World';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { ELEMENT_COLOR } from '../simulation/Genetics';
+import { eventBus, EVT, type ParticleEvent } from '../utils/eventBus';
 
 const FOOD_COLOR = 0xffd76a;
 const WALL_COLOR = 0xff5a2a;
 const CHAOS_COLOR = 0x1c0f18;
+const MAX_PARTICLES = 500;
+
+/** 单个粒子 */
+interface Particle {
+  g: Graphics;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  baseR: number;
+}
 
 /**
  * PixiJS 世界渲染器：绘制剑域网格、庚金之气、火墙、混沌区与剑意。
- * 每帧重建一个 Graphics，可承载数百剑意。
+ * 每帧重建一个 Graphics，可承载数百剑意；另含粒子层播放碰撞/分化/陨落等效果。
  */
 export class WorldRenderer {
   readonly container: Container;
@@ -20,6 +32,9 @@ export class WorldRenderer {
   private height: number;
   private showBars: boolean;
   private selectedId: string | null = null;
+  private particles: Particle[] = [];
+  private particleLayer: Container;
+  private lastTick = 0;
 
   constructor(container: Container, width: number, height: number, cell: number, showBars = false) {
     this.container = container;
@@ -29,15 +44,102 @@ export class WorldRenderer {
     this.showBars = showBars;
     this.bg = new Graphics();
     this.g = new Graphics();
-    container.addChild(this.bg, this.g);
+    this.particleLayer = new Container();
+    container.addChild(this.bg, this.g, this.particleLayer);
     this.bg.beginFill(0x0c1017);
     this.bg.drawRect(0, 0, width * cell, height * cell);
     this.bg.endFill();
+
+    // 监听粒子事件 (渲染端专用，headless 无副作用)
+    eventBus.on(EVT.BATTLE_HIT, (e) => this.onBattleHit(e as ParticleEvent));
+    eventBus.on(EVT.SPLIT, (e) => this.onSplit(e as ParticleEvent));
+    eventBus.on(EVT.DEATH, (e) => this.onDeath(e as ParticleEvent));
+    eventBus.on(EVT.EAT, (e) => this.onEat(e as ParticleEvent));
+    eventBus.on(EVT.THUNDER, (e) => this.onThunder(e as ParticleEvent));
+  }
+
+  destroy(): void {
+    eventBus.off(EVT.BATTLE_HIT, (e) => this.onBattleHit(e as ParticleEvent));
+    eventBus.off(EVT.SPLIT, (e) => this.onSplit(e as ParticleEvent));
+    eventBus.off(EVT.DEATH, (e) => this.onDeath(e as ParticleEvent));
+    eventBus.off(EVT.EAT, (e) => this.onEat(e as ParticleEvent));
+    eventBus.off(EVT.THUNDER, (e) => this.onThunder(e as ParticleEvent));
   }
 
   /** 设置选中剑意 (绘制高亮框) */
   setSelected(id: string | null): void {
     this.selectedId = id;
+  }
+
+  /** 每帧推进粒子 (dt 秒) */
+  updateParticles(dt: number): void {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        this.particleLayer.removeChild(p.g);
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.g.x += p.vx * dt;
+      p.g.y += p.vy * dt;
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      const t = p.life / p.maxLife;
+      p.g.alpha = Math.min(1, t * 1.4);
+      p.g.scale.set(Math.max(0.05, t));
+    }
+  }
+
+  private spawnBurst(x: number, y: number, color: number, count: number, speed: number, size: number, life: number): void {
+    const cx = (x + 0.5) * this.cell;
+    const cy = (y + 0.5) * this.cell;
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= MAX_PARTICLES) break;
+      const g = new Graphics();
+      g.beginFill(color, 1);
+      g.drawCircle(0, 0, size);
+      g.endFill();
+      g.x = cx;
+      g.y = cy;
+      const ang = Math.random() * Math.PI * 2;
+      const sp = speed * (0.3 + Math.random() * 0.9);
+      this.particleLayer.addChild(g);
+      this.particles.push({ g, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, maxLife: life, baseR: size });
+    }
+  }
+
+  private elementColor(element?: string): number {
+    const map: Record<string, number> = { metal: 0xd8dee9, wood: 0x7ddb8f, water: 0x5aa9ff, fire: 0xff6a4a, earth: 0xd0a86a };
+    return element ? map[element] ?? 0xd8dee9 : 0xd8dee9;
+  }
+
+  private onBattleHit(e: ParticleEvent): void {
+    const c = this.elementColor(e.element);
+    const n = Math.min(14, 4 + Math.round((e.intensity ?? 3) / 2));
+    this.spawnBurst(e.x, e.y, c, n, this.cell * 5, this.cell * 0.16, 0.5);
+    this.spawnBurst(e.x, e.y, 0xfff6d8, 3, this.cell * 6, this.cell * 0.1, 0.3);
+  }
+
+  private onSplit(e: ParticleEvent): void {
+    const c = this.elementColor(e.element);
+    this.spawnBurst(e.x, e.y, c, 16, this.cell * 7, this.cell * 0.2, 0.8);
+    this.spawnBurst(e.x, e.y, 0xffd76a, 6, this.cell * 4, this.cell * 0.12, 0.6);
+  }
+
+  private onDeath(e: ParticleEvent): void {
+    const c = this.elementColor(e.element);
+    this.spawnBurst(e.x, e.y, c, 12, this.cell * 4, this.cell * 0.18, 0.7);
+    this.spawnBurst(e.x, e.y, 0x777c88, 10, this.cell * 3, this.cell * 0.12, 0.9);
+  }
+
+  private onEat(e: ParticleEvent): void {
+    this.spawnBurst(e.x, e.y, 0xffd76a, 4, this.cell * 4, this.cell * 0.1, 0.4);
+  }
+
+  private onThunder(e: ParticleEvent): void {
+    this.spawnBurst(e.x, e.y, 0x9ac8ff, 14, this.cell * 8, this.cell * 0.2, 0.35);
+    this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 6, this.cell * 0.16, 0.2);
   }
 
   render(world: World, tick: number): void {

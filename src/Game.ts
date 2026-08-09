@@ -33,18 +33,17 @@ import {
   NN_LAYERS,
   START_ENERGY,
   START_HP,
-  MAX_HP,
   BATTLE_TICK_LIMIT,
   BATTLE_TPS,
   BATTLE_WIN_SCORE,
   BATTLE_LOSE_SCORE,
-  ARENA_SIZE,
   SAVE_INTERVAL_MS,
   DAILY_FOOD_DROP,
   FOOD_DROP_BATCH,
   EMERGENCE_THRESHOLD,
   EMERGENCE_MIN_GEN,
 } from './constants';
+import { Duel } from './simulation/Duel';
 
 type SceneName = 'menu' | 'embryo' | 'forge' | 'appraisal' | 'tournament';
 
@@ -52,12 +51,9 @@ interface BattleRun {
   ui: BattleUI;
   opp: OpponentInfo;
   artId: string;
-  world: World;
-  renderer: WorldRenderer;
+  duel: Duel;
   tick: number;
   ended: boolean;
-  player: SwordAgent;
-  npc: SwordAgent;
 }
 
 /** 游戏主控：场景编排、天数循环、天劫、鉴定、大比、存档与解锁 */
@@ -269,6 +265,7 @@ export class Game {
     this.refreshHudControls();
     this.mountCanvas(this.hud.canvasHost);
     this.app.stage.removeChildren();
+    this.renderer?.destroy?.();
     this.renderer = new WorldRenderer(this.app.stage, GRID_WIDTH, GRID_HEIGHT, 10);
     this.frame = 0;
     if (this.world) {
@@ -636,12 +633,14 @@ export class Game {
         this.battleAccumulator -= budget / BATTLE_TPS;
         budget = Math.min(budget, 60);
         for (let i = 0; i < budget; i++) {
-          this.battle.world.tick();
+          const events = this.battle.duel.step();
           this.battle.tick++;
+          if (events.length > 0) {
+            this.battle.ui.pushEvents(events, this.battle.duel.p, this.battle.duel.n);
+          }
           if (this.checkBattleEnd()) break;
         }
       }
-      this.battle.renderer.render(this.battle.world, this.frame);
     }
   }
 
@@ -850,121 +849,72 @@ export class Game {
     ];
     const arts = SWORD_ARTS.filter((a) => !a.requireMaterial || this.save.unlockedMaterialIds.includes(a.requireMaterial));
     buildTournament(this.host, this, opponents, player.genome, player.name, arts);
-
-    this.mountCanvas(document.querySelector('#app .canvas-host') as HTMLElement | null);
-    // 先渲染空斗剑台
-    const empty = new World({ width: ARENA_SIZE, height: ARENA_SIZE, spawnFood: false, foodMax: 0 });
-    this.app.stage.removeChildren();
-    const er = new WorldRenderer(this.app.stage, ARENA_SIZE, ARENA_SIZE, 40, true);
-    er.render(empty, 0);
   }
 
   startTournament(oppId: string, artId: string, ui: BattleUI): void {
     const opp = this.findOpponent(oppId);
     const playerState = this.battlePlayerState;
+    const playerName = this.appraisedRanked?.name ?? '本命剑';
     if (!opp || !playerState) {
       ui.setResult('缺少对阵数据。', false);
       ui.setRunning(false);
       return;
     }
 
-    const arena = new World({
-      width: ARENA_SIZE,
-      height: ARENA_SIZE,
-      foodMax: 0,
-      foodRegenRate: 0,
-      spawnFood: false,
-      isShrinking: false,
-      dayTickLimit: BATTLE_TICK_LIMIT,
-    });
-    arena.tickCounter = 0;
+    const duel = new Duel(
+      {
+        name: playerName,
+        element: playerState.genome.element,
+        genome: playerState.genome,
+        art: artId,
+      },
+      {
+        name: opp.name,
+        element: opp.genome.element,
+        genome: opp.genome,
+      },
+    );
 
-    // 玩家剑意
-    const playerBrain = new SimpleNN(NN_LAYERS, false);
-    playerBrain.setFromFlat(playerState.brainWeights, playerState.brainBiases);
-    const pState = JSON.parse(JSON.stringify(playerState)) as SwordState;
-    pState.position = { x: 3, y: 7 };
-    pState.hp = MAX_HP;
-    pState.energy = 100;
-    pState.id = uid('sw');
-    const playerAgent = new SwordAgent(pState, playerBrain, arena);
-    playerAgent.battleMods.noCost = true;
-    this.applyArt(playerAgent, artId);
-    arena.addSword(playerAgent, 3, 7);
+    this.battle = { ui, opp, artId, duel, tick: 0, ended: false };
 
-    // 对手剑意
-    const npcBrain = new SimpleNN(NN_LAYERS);
-    const nState: SwordState = {
-      id: uid('sw'),
-      name: opp.name,
-      genome: opp.genome,
-      brainWeights: npcBrain.getWeights(),
-      brainBiases: npcBrain.getBiases(),
-      energy: 100,
-      hp: MAX_HP,
-      age: 0,
-      birthTick: 0,
-      position: { x: 11, y: 7 },
-      facing: { x: -1, y: 0 },
-      parentId: '',
-      generation: 1,
-      origin: 'wild',
-    };
-    const npcAgent = new SwordAgent(nState, npcBrain, arena);
-    npcAgent.battleMods.noCost = true;
-    npcAgent.battleMods.firstStrike = true; // 对手喜抢攻
-    arena.addSword(npcAgent, 11, 7);
+    ui.showDuel(
+      {
+        name: playerName,
+        element: playerState.genome.element,
+        affixes: playerState.genome.affixes ?? [],
+        art: artId,
+        isPlayer: true,
+      },
+      {
+        name: opp.name,
+        element: opp.genome.element,
+        affixes: opp.genome.affixes ?? [],
+        title: opp.title,
+      },
+    );
 
-    // 渲染器
-    this.app.stage.removeChildren();
-    const renderer = new WorldRenderer(this.app.stage, ARENA_SIZE, ARENA_SIZE, 40, true);
-    renderer.render(arena, 0);
-
-    this.battle = { ui, opp, artId, world: arena, renderer, tick: 0, ended: false, player: playerAgent, npc: npcAgent };
-  }
-
-  private applyArt(agent: SwordAgent, artId: string): void {
-    switch (artId) {
-      case 'strike':
-        agent.battleMods.firstStrike = true;
-        break;
-      case 'counter':
-        agent.battleMods.counterStrike = true;
-        break;
-      case 'agile':
-        agent.battleMods.agile = true;
-        break;
-      case 'quick':
-        agent.battleMods.quick = true;
-        break;
-      case 'thunder':
-        agent.battleMods.thunder = true;
-        break;
-      default:
-        break;
-    }
+    // 开战仪式
+    ui.pushEvents(
+      [{ text: `试剑台上，${opp.name}抱剑而立，剑意如虹：「请！」`, kind: 'info', actor: 'npc' }],
+      { hp: duel.p.hp, energy: duel.p.energy, ap: duel.p.ap },
+      { hp: duel.n.hp, energy: duel.n.energy, ap: duel.n.ap },
+    );
   }
 
   private checkBattleEnd(): boolean {
     const b = this.battle;
     if (!b) return false;
-    const playerAlive = b.world.swords.has(b.player.state.id);
-    const npcAlive = b.world.swords.has(b.npc.state.id);
-    if (playerAlive && npcAlive && b.tick < BATTLE_TICK_LIMIT) return false;
+    if (!b.duel.over && b.tick < BATTLE_TICK_LIMIT) return false;
     b.ended = true;
-    this.finishBattle(b, playerAlive, npcAlive);
+    this.finishBattle(b);
     return true;
   }
 
-  private finishBattle(b: BattleRun, playerAlive: boolean, npcAlive: boolean): void {
-    const playerHp = Math.max(0, b.player.state.hp);
-    const npcHp = Math.max(0, b.npc.state.hp);
-    let playerWin: boolean;
-    if (!playerAlive) playerWin = false;
-    else if (!npcAlive) playerWin = true;
-    else playerWin = playerHp >= npcHp;
-
-    const hpRatio = playerAlive ? Math.max(0, playerHp) / MAX_HP : 0;
+  private finishBattle(b: BattleRun): void {
+    const playerWin = b.duel.winner === 'player';
+    const playerHp = Math.max(0, b.duel.p.hp);
+    const npcHp = Math.max(0, b.duel.n.hp);
+    const hpRatio = playerHp / 100;
     const points = playerWin
       ? Math.round(BATTLE_WIN_SCORE * b.opp.difficulty + hpRatio * 300)
       : Math.round(BATTLE_LOSE_SCORE * b.opp.difficulty);

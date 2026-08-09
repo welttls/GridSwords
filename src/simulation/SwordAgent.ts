@@ -40,6 +40,8 @@ export class SwordAgent {
   world: World;
   behavior: BehaviorStats;
   lastMoveDir = 0;
+  /** 上一格坐标 (禁止立即折返，避免两格间来回振荡) */
+  private prevCell: { x: number; y: number } | null = null;
 
   /** 宗门大比剑诀修饰 */
   battleMods: {
@@ -204,6 +206,11 @@ export class SwordAgent {
     let out = this.brain.forward(input);
     const bias = this.instinctBias(input);
     out = out.map((v, i) => v + bias[i]);
+    // 惯性：延续上次方向、折返略罚，打破感知/本能对冲造成的两格来回
+    if (this.lastMoveDir >= 0) {
+      out[this.lastMoveDir] += 0.06;
+      out[this.lastMoveDir ^ 1] -= 0.12;
+    }
 
     let best = -1;
     let bestVal = DECISION_THRESHOLD;
@@ -239,26 +246,41 @@ export class SwordAgent {
 
   /** 行动：移动/吃/战斗；目标被阻挡则尝试其他方向，避免卡墙 */
   act(dir: number): void {
-    const d = MOVES[dir];
-    const x = this.state.position.x + DIRS[d].dx;
-    const y = this.state.position.y + DIRS[d].dy;
-    if (this.world.inBounds(x, y) && !this.world.isWall(x, y)) {
-      this.performMoveTo(x, y);
-      return;
-    }
-    for (const alt of shuffle([0, 1, 2, 3])) {
-      const ad = MOVES[alt];
-      const ax = this.state.position.x + DIRS[ad].dx;
-      const ay = this.state.position.y + DIRS[ad].dy;
-      if (this.world.inBounds(ax, ay) && !this.world.isWall(ax, ay)) {
-        this.performMoveTo(ax, ay);
-        return;
+    const tryMove = (d: number): boolean => {
+      const dd = MOVES[d];
+      const x = this.state.position.x + DIRS[dd].dx;
+      const y = this.state.position.y + DIRS[dd].dy;
+      if (this.world.inBounds(x, y) && !this.world.isWall(x, y)) {
+        this.performMoveTo(x, y);
+        return true;
       }
+      return false;
+    };
+    // 禁止立即折返：刚离开的格子不再走回（除非无路可走），打破两格死循环
+    const isBacktrack = (d: number): boolean => {
+      if (!this.prevCell) return false;
+      const dd = MOVES[d];
+      return (
+        this.state.position.x + DIRS[dd].dx === this.prevCell.x &&
+        this.state.position.y + DIRS[dd].dy === this.prevCell.y
+      );
+    };
+
+    if (!isBacktrack(dir) && tryMove(dir)) return;
+    const others = shuffle([0, 1, 2, 3].filter((d) => d !== dir));
+    for (const alt of others) {
+      if (!isBacktrack(alt) && tryMove(alt)) return;
+    }
+    // 其它方向均避不开折返（如死胡同）→ 允许折返或任选可走方向
+    if (tryMove(dir)) return;
+    for (const alt of others) {
+      if (tryMove(alt)) return;
     }
     this.behavior.waitCount++;
   }
 
   private performMoveTo(x: number, y: number): void {
+    this.prevCell = { x: this.state.position.x, y: this.state.position.y };
     this.state.facing = { x: x - this.state.position.x, y: y - this.state.position.y };
     this.actedThisTick = true; // 移动/采气/碰撞皆耗精元
 
@@ -267,6 +289,7 @@ export class SwordAgent {
       this.world.removeFood(x, y);
       this.state.energy += food;
       this.behavior.eatCount++;
+      eventBus.emit(EVT.EAT, { x, y, intensity: food });
       this.world.moveSword(this, x, y);
       this.visitCurrent();
       return;
@@ -278,6 +301,12 @@ export class SwordAgent {
       if (defender) {
         this.behavior.attackCount++;
         const result = resolveBattle(this, defender);
+        eventBus.emit(EVT.BATTLE_HIT, {
+          x: this.state.position.x,
+          y: this.state.position.y,
+          element: this.state.genome.element,
+          intensity: result.damage,
+        });
         this.counterReady = false; // 反击只生效一次
         // 淬毒：命中之敌剑体持续溃烂
         if (this.state.genome.affixes.includes('poison')) {
@@ -349,6 +378,7 @@ export class SwordAgent {
       if (Math.random() < strikeChance) {
         this.state.hp -= 25;
         this.state.energy -= 12;
+        eventBus.emit(EVT.THUNDER, { x: this.state.position.x, y: this.state.position.y });
       }
     }
 
@@ -384,6 +414,11 @@ export class SwordAgent {
   }
 
   die(): void {
+    eventBus.emit(EVT.DEATH, {
+      x: this.state.position.x,
+      y: this.state.position.y,
+      element: this.state.genome.element,
+    });
     this.world.removeSword(this.state.id);
   }
 

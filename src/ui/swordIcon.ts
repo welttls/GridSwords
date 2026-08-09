@@ -1,23 +1,29 @@
 import type { Element } from '../types';
 import { ELEMENT_COLOR } from '../simulation/Genetics';
 
-/** 在 canvas 上绘制一柄五行小剑 (用于卡片/鉴定/榜单) */
-export function drawSwordIcon(canvas: HTMLCanvasElement, element: Element): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const size = canvas.width;
-  ctx.clearRect(0, 0, size, size);
+/** 五行色 hex */
+function elementHex(element: Element): string {
+  return `#${ELEMENT_COLOR[element].toString(16).padStart(6, '0')}`;
+}
+
+/** 光晕 */
+function drawGlow(ctx: CanvasRenderingContext2D, size: number, element: Element): void {
   const cx = size / 2;
   const cy = size / 2;
-  const len = size * 0.38;
-  const hex = `#${ELEMENT_COLOR[element].toString(16).padStart(6, '0')}`;
-
-  // 光晕
+  const hex = elementHex(element);
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.5);
   grad.addColorStop(0, `${hex}33`);
   grad.addColorStop(1, 'transparent');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
+}
+
+/** 程序化五行小剑 (占位/兜底，无需素材) */
+function drawProceduralSword(ctx: CanvasRenderingContext2D, size: number, element: Element): void {
+  const cx = size / 2;
+  const cy = size / 2;
+  const len = size * 0.38;
+  const hex = elementHex(element);
 
   ctx.strokeStyle = hex;
   ctx.lineWidth = Math.max(2, size * 0.06);
@@ -38,4 +44,37 @@ export function drawSwordIcon(canvas: HTMLCanvasElement, element: Element): void
   ctx.beginPath();
   ctx.arc(cx, cy + len * 0.95, Math.max(2, size * 0.045), 0, Math.PI * 2);
   ctx.fill();
+}
+
+/**
+ * 在 canvas 上绘制五行小剑 (用于卡片/鉴定/榜单)。
+ * 立即绘制程序剑占位，异步加载五行色 katana 素材 (game-icons, CC BY 3.0) 后替换。
+ */
+export function drawSwordIcon(canvas: HTMLCanvasElement, element: Element): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const size = canvas.width;
+
+  const paint = () => {
+    ctx.clearRect(0, 0, size, size);
+    drawGlow(ctx, size, element);
+    drawProceduralSword(ctx, size, element);
+  };
+  paint();
+
+  // 异步加载五行色剑图 (透明底 SVG)，加载完成即以真图重绘
+  const img = new Image();
+  img.onload = () => {
+    if (canvas.width === 0) return; // canvas 已被释放
+    const c = canvas.getContext('2d');
+    if (!c) return;
+    c.clearRect(0, 0, size, size);
+    drawGlow(c, size, element);
+    const pad = size * 0.14;
+    c.drawImage(img, pad, pad, size - pad * 2, size - pad * 2);
+  };
+  img.onerror = () => {
+    /* 加载失败则保持程序剑占位 */
+  };
+  img.src = `img/swords/katana_${element}.svg`;
 }

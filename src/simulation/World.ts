@@ -192,6 +192,7 @@ export class World {
     };
     const child = new SwordAgent(childState, brain, this);
     this.addSword(child, nx, ny);
+    eventBus.emit(EVT.SPLIT, { x: parent.state.position.x, y: parent.state.position.y, element: parent.state.genome.element });
     this.lineage.set(child.state.id, {
       parentId: parent.state.id,
       day: this.config.currentDay,
