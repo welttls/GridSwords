@@ -126,6 +126,9 @@ export class Game {
     this.paused = true;
     this.battle = null;
     this.hideCanvas();
+    // P3：离开炼剑/大比场景时销毁渲染器，解绑其粒子监听
+    this.renderer?.destroy?.();
+    this.renderer = null;
     buildMenu(this.host, this);
   }
 
@@ -149,7 +152,29 @@ export class Game {
   }
 
   // ================= 开局 =================
+  /** P0-3：有进行中的局时，先确认是否放弃再开新局 */
   startNewRun(element: Element): void {
+    if (this.save.activeRun) {
+      const body = el('div', '');
+      body.appendChild(el('p', '', '当前仍有一局炼剑未竟。'));
+      body.appendChild(el('p', 'reseed-sub', '开始新局将放弃当前进度（不可恢复），确定吗？'));
+      const btnRow = el('div', 'modal-actions');
+      const cancel = el('button', 'btn btn-ghost', '取消');
+      const confirm = el('button', 'btn btn-gold', '放弃并开新局');
+      btnRow.append(cancel, confirm);
+      body.appendChild(btnRow);
+      const overlay = openModal('开始新的炼剑之局？', body, { width: 440 });
+      cancel.addEventListener('click', () => overlay.remove());
+      confirm.addEventListener('click', () => {
+        overlay.remove();
+        this.doStartNewRun(element);
+      });
+      return;
+    }
+    this.doStartNewRun(element);
+  }
+
+  private doStartNewRun(element: Element): void {
     this.embryoGenome = randomGenome(element);
     if (this.save.hasSwordDust) {
       const g = this.embryoGenome;
@@ -184,6 +209,7 @@ export class Game {
     const agent = new SwordAgent(st, brain, world);
     world.addSword(agent, cx, cy);
     world.rootId = st.id;
+    world.lineage.set(st.id, { parentId: '', day: 1, generation: 1, element: this.embryoGenome.element });
     world.spawnInitialFood(10); // 荒域孤剑，生死由天
 
     this.world = world;
@@ -197,9 +223,10 @@ export class Game {
     this.selectedSwordId = null;
     this.emergenceTargetId = null;
 
-    // 炉材次数初始化 (已解锁材料按可用次数)
+    // 炉材次数初始化 (已解锁材料按可用次数；剑尘走 hasSwordDust 布尔轨，不产生幽灵次数)
     this.save.materialCounts = {};
     for (const m of RECIPES) {
+      if (m.id === 'sword_dust') continue; // P1-9：剑尘由 hasSwordDust 管理，避免双轨冗余
       if (this.save.unlockedMaterialIds.includes(m.id)) {
         this.save.materialCounts[m.id] = m.count;
       }
@@ -211,9 +238,9 @@ export class Game {
     this.save.embryoGenome = this.embryoGenome;
     this.save.day = 1;
     this.save.tickCounter = 0;
-    this.saveGame();
 
     this.buildForgeScene();
+    this.saveGame(); // P0-4：先切场景为 forge 再存档，避免 activeRun 被存为 false
     this.paused = true;
     this.openDailyDropPanelForDay(1); // 第1日子时剑潮
     eventBus.emit(EVT.LOG, `${ELEMENT_LABEL[element]}行剑胚落入剑域，凡铁自此而始。`);
@@ -242,7 +269,18 @@ export class Game {
         element: st.genome.element,
       });
     }
-    world.spawnInitialFood(10);
+    // P1-3：为根剑胚补 lineage 条目，避免悟道之树在种子处断裂 (若已存在则不覆盖)
+    if (world.rootId && !world.lineage.has(world.rootId)) {
+      world.lineage.set(world.rootId, {
+        parentId: '',
+        day: 1,
+        generation: 1,
+        element: this.embryoGenome.element,
+      });
+    }
+    // P1-4：续档恢复生态状态 (边界/庚金/火墙/天劫开关)，避免剑域回春
+    if (this.save.eco) world.restoreEcoState(this.save.eco);
+    else world.spawnInitialFood(10);
 
     this.world = world;
     this.tribulationEnded = false;
@@ -259,6 +297,8 @@ export class Game {
     this.scene = 'forge';
     this.host.classList.add('forge-screen');
     clearNode(this.host);
+    // P1-1：销毁旧 HUD，解绑其 LOG 监听，防止多局重复触发
+    this.hud?.destroy?.();
     this.hud = new HUD(this.host);
     this.hud.onMaterialClick(() => this.openFurnacePanel());
     this.hud.focusHandler = (id) => this.focusSword(id);
@@ -299,6 +339,8 @@ export class Game {
 
   /** 聚焦某道剑意：高亮选中框 + 打开灵鉴 */
   focusSword(id: string | null): void {
+    // P1-2 相关：仅炼剑界面可聚焦，避免跨场景/跨局误弹灵鉴
+    if (this.scene !== 'forge') return;
     const w = this.world;
     this.selectedSwordId = id;
     this.renderer?.setSelected(id);
@@ -378,6 +420,9 @@ export class Game {
     });
     no.addEventListener('click', () => {
       overlay.remove();
+      // P1-11：放弃本局 → 清 activeRun 并保存，避免「继续炼剑」死循环入口
+      this.save.activeRun = false;
+      this.saveGame();
       this.showMenu();
     });
   }
@@ -424,7 +469,13 @@ export class Game {
     brain.setFromFlat(st.brainWeights, st.brainBiases);
     const agent = new SwordAgent(st, brain, w);
     w.addSword(agent, px, py);
+    if (!w.swords.has(st.id)) {
+      // P3：找不到空位 (天劫收束期) → 明确反馈而非静默失败
+      toast('剑域已无立足之地，本命剑胚无法种下。');
+      return;
+    }
     w.rootId = st.id;
+    w.lineage.set(st.id, { parentId: '', day: w.config.currentDay, generation: 1, element: genome.element });
     this.seedExtinctPrompted = false; // 未来再绝，仍可再问
     eventBus.emit(EVT.LOG, {
       text: '你重新种下一道本命剑胚，凡铁再续。',
@@ -514,6 +565,7 @@ export class Game {
     }
     if (spawned > 0) eventBus.emit(EVT.LOG, `第${day}日子时，${label}降下${spawned}道游离剑意。`);
     else if (kind === 'none') eventBus.emit(EVT.LOG, `第${day}日子时：你未投剑意，剑域唯余余波自涌。`);
+    else eventBus.emit(EVT.LOG, `第${day}日子时：剑域已无立足之地，${label}竟无处落脚。`); // P3：网格饱和时也给出反馈
     if (this.hud && this.world) this.hud.update(this.world);
   }
 
@@ -526,7 +578,7 @@ export class Game {
     for (let i = 0; i < FOOD_DROP_BATCH; i++) {
       if (w.dropFoodAtRandom()) dropped++;
     }
-    this.save.feedDropped = Math.min(DAILY_FOOD_DROP, this.save.feedDropped + FOOD_DROP_BATCH);
+    this.save.feedDropped = Math.min(DAILY_FOOD_DROP, this.save.feedDropped + dropped); // P1-10：按实际落下的团数计，空投不扣配额
     if (dropped > 0) eventBus.emit(EVT.LOG, `你撒下一捧庚金之气，${dropped}团落入剑域。`);
     this.refreshHudControls();
     this.saveGame();
@@ -618,10 +670,12 @@ export class Game {
             important: true,
           });
           toast('✨ 涌现：一道能自续的稳定剑意血脉诞生了！点击聚焦', 8000, () => {
-            if (this.emergenceTargetId) this.focusSword(this.emergenceTargetId);
+            // P1-2 相关：捕获当时的代表剑 id，避免跨局误聚焦新局的剑
+            const targetId = this.emergenceTargetId;
+            if (targetId) this.focusSword(targetId);
           });
         }
-        this.saveTimer += 16.6;
+        this.saveTimer += dt * 1000; // P1-7：按真实帧时长累计，而非固定 16.6ms
         if (this.saveTimer >= SAVE_INTERVAL_MS) {
           this.saveTimer = 0;
           this.saveGame();
@@ -792,6 +846,8 @@ export class Game {
     this.scene = 'appraisal';
     this.host.classList.remove('forge-screen');
     this.hideCanvas();
+    this.renderer?.destroy?.();
+    this.renderer = null;
     buildAppraisal(this.host, this, data);
   }
 
@@ -815,7 +871,10 @@ export class Game {
     this.save.finishedGames++;
     this.save.activeRun = false;
     this.save.history.push(ranked);
-    this.save.history.sort((a, b) => b.score - a.score || b.dayReached - a.dayReached).slice(0, 20);
+    // P0-5：截断结果必须重新赋值，否则 history 无限增长
+    this.save.history = this.save.history
+      .sort((a, b) => b.score - a.score || b.dayReached - a.dayReached)
+      .slice(0, RankingManager.TOP_N);
     this.save.bestScore = Math.max(this.save.bestScore, ranked.score);
 
     const rank = this.save.history.findIndex((s) => s.id === ranked.id) + 1;
@@ -838,6 +897,8 @@ export class Game {
     this.scene = 'tournament';
     this.host.classList.remove('forge-screen');
     this.hideCanvas();
+    this.renderer?.destroy?.();
+    this.renderer = null;
     const player = this.appraisedRanked;
     if (!player) {
       this.showMenu();
@@ -867,7 +928,7 @@ export class Game {
     const playerState = this.battlePlayerState;
     const playerName = this.appraisedRanked?.name ?? '本命剑';
     if (!opp || !playerState) {
-      ui.setResult('缺少对阵数据。', false);
+      ui.setResult(false, '缺少对阵数据。');
       ui.setRunning(false);
       return;
     }
@@ -936,8 +997,8 @@ export class Game {
   private finishBattle(b: BattleRun): void {
     const playerWin = b.duel.winner === 'player';
     const playerHp = Math.max(0, b.duel.p.hp);
-    const npcHp = Math.max(0, b.duel.n.hp);
-    const hpRatio = playerHp / 100;
+    // P1-12：hpRatio 按实际剑体上限而非硬编码 100，坚韧高者不再白拿分
+    const hpRatio = Math.min(1, playerHp / Math.max(1, b.duel.p.maxHp));
     const points = playerWin
       ? Math.round(BATTLE_WIN_SCORE * b.opp.difficulty + hpRatio * 300)
       : Math.round(BATTLE_LOSE_SCORE * b.opp.difficulty);
@@ -950,7 +1011,7 @@ export class Game {
         entry.score = this.appraisedRanked.score;
         entry.wins = this.appraisedRanked.wins;
       }
-      this.save.history.sort((a, c) => c.score - a.score).slice(0, 20);
+      this.save.history = this.save.history.sort((a, c) => c.score - a.score).slice(0, RankingManager.TOP_N); // P0-5：截断结果重新赋值
       this.save.bestScore = Math.max(this.save.bestScore, this.appraisedRanked.score);
     }
 
@@ -963,10 +1024,14 @@ export class Game {
     }
     this.saveGame();
 
-    const html = playerWin
-      ? `<div class="battle-winner">胜！<div class="battle-sub">击败 ${b.opp.name}（难度 ×${b.opp.difficulty}）· 获得 ${points} 分</div></div>`
-      : `<div class="battle-winner lose">败。<div class="battle-sub">惜败于 ${b.opp.name} · 获得 ${points} 分</div></div>`;
-    b.ui.setResult(html, playerWin);
+    // P1-2：用 textContent 渲染 (setResult 内部)，避免用户命名的剑名注入 HTML
+    b.ui.setResult(
+      playerWin,
+      playerWin ? '胜！' : '败。',
+      playerWin
+        ? `击败 ${b.opp.name}（难度 ×${b.opp.difficulty}）· 获得 ${points} 分`
+        : `惜败于 ${b.opp.name} · 获得 ${points} 分`,
+    );
     b.ui.setRunning(false);
   }
 
@@ -1013,9 +1078,10 @@ export class Game {
       tickCounter: this.world?.tickCounter ?? 0,
       materialCounts: this.save.materialCounts,
       feedDropped: this.save.feedDropped,
-      swords: this.world ? [...this.world.swords.values()].map((a) => a.state) : [],
+      swords: this.world ? [...this.world.swords.values()].map((a) => ({ ...a.state, behavior: a.behavior })) : [],
       rootId: this.world?.rootId ?? null,
       maxGeneration: this.world?.maxGeneration ?? 1,
+      eco: this.world ? this.world.exportEcoState() : null,
     };
   }
 

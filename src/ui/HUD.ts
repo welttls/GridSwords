@@ -32,10 +32,18 @@ export class HUD {
   /** 日志中「聚焦剑意」的回调 */
   focusHandler: ((id: string) => void) | null = null;
 
+  /** 字段级日志 handler (便于 destroy 时精确解绑) */
+  private logHandler = (msg: LogMessage | string) => this.addLog(msg);
+
   constructor(host: HTMLElement) {
     this.host = host;
     this.build();
-    eventBus.on(EVT.LOG, (msg) => this.addLog(msg as LogMessage | string));
+    eventBus.on(EVT.LOG, this.logHandler);
+  }
+
+  /** 销毁：解绑事件监听，防止多局后重复触发 */
+  destroy(): void {
+    eventBus.off(EVT.LOG, this.logHandler);
   }
 
   get canvasHost(): HTMLElement {

@@ -36,7 +36,8 @@ export interface FighterBar {
 export interface BattleUI {
   getOpponent: () => string | null;
   getArt: () => string | null;
-  setResult: (html: string, ok?: boolean) => void;
+  /** 决斗结果 (ok=胜负, main=主文案, sub=副文案) —— 用 textContent 渲染，防注入 */
+  setResult: (ok: boolean, main: string, sub?: string) => void;
   setRunning: (running: boolean) => void;
   selectOpponent: (id: string) => void;
   /** 展开决斗舞台 (左右双剑 + 场景) */
@@ -139,6 +140,17 @@ export function buildTournament(
 
   // 大招大字
   const techTitle = el('div', 'duel-tech-title hidden');
+  // 大字隐藏定时器 (P3：同帧多事件时先清除旧的，避免标题提前消失)
+  let techTitleTimer: number | null = null;
+  const showTechTitle = (text: string) => {
+    if (techTitleTimer !== null) window.clearTimeout(techTitleTimer);
+    techTitle.classList.remove('hidden');
+    techTitle.textContent = text;
+    techTitle.classList.remove('show');
+    void techTitle.offsetWidth; // 重置动画
+    techTitle.classList.add('show');
+    techTitleTimer = window.setTimeout(() => techTitle.classList.add('hidden'), 950);
+  };
 
   // 玩家招式选择
   const choicePanel = el('div', 'duel-choice hidden');
@@ -309,11 +321,13 @@ export function buildTournament(
   const ui: BattleUI = {
     getOpponent: () => selectedId,
     getArt: () => artSel.value,
-    setResult: (html: string, ok = true) => {
+    setResult: (ok, main, sub) => {
       clearNode(resultBox);
       resultBox.classList.remove('hidden');
       const box = el('div', ok ? 'result-ok' : 'result-fail');
-      box.innerHTML = html;
+      const mainEl = el('div', 'battle-winner', main);
+      if (sub) mainEl.appendChild(el('div', 'battle-sub', sub));
+      box.appendChild(mainEl);
       resultBox.appendChild(box);
     },
     setRunning: (running: boolean) => {
@@ -325,7 +339,6 @@ export function buildTournament(
         stage.classList.remove('hidden');
         clearNode(logBox);
         resultBox.classList.add('hidden');
-        oppPanel.classList.add('minimized');
       }
     },
     selectOpponent: (id: string) => {
@@ -367,12 +380,7 @@ export function buildTournament(
           const defender = e.actor === 'player' ? right : left;
           const color = e.actor === 'player' ? '#ffd76a' : '#c48aff';
           // 大字
-          techTitle.classList.remove('hidden');
-          techTitle.textContent = `${e.techName}！`;
-          techTitle.classList.remove('show');
-          void techTitle.offsetWidth; // 重置动画
-          techTitle.classList.add('show');
-          window.setTimeout(() => techTitle.classList.add('hidden'), 950);
+          showTechTitle(`${e.techName}！`);
           // 攻击类招式：前冲 + 碰撞粒子 + 受击 (回复/护盾类只在自身放特效，不出击)
           const fx = e.fx ?? 'strike';
           const isAttack = fx !== 'heal' && fx !== 'shield';

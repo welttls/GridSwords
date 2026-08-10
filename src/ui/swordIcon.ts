@@ -50,10 +50,16 @@ function drawProceduralSword(ctx: CanvasRenderingContext2D, size: number, elemen
  * 在 canvas 上绘制五行小剑 (用于卡片/鉴定/榜单)。
  * 立即绘制程序剑占位，异步加载五行色 katana 素材 (game-icons, CC BY 3.0) 后替换。
  */
+/** 每个 canvas 的代际 token：防止同一 canvas 上一帧的 onload 晚于本次绘制覆盖成错误五行剑 */
+const canvasGens = new WeakMap<HTMLCanvasElement, number>();
+let iconSeq = 0;
+
 export function drawSwordIcon(canvas: HTMLCanvasElement, element: Element): void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const size = canvas.width;
+  const gen = ++iconSeq;
+  canvasGens.set(canvas, gen); // 记录本次绘制代际
 
   const paint = () => {
     ctx.clearRect(0, 0, size, size);
@@ -65,7 +71,7 @@ export function drawSwordIcon(canvas: HTMLCanvasElement, element: Element): void
   // 异步加载五行色剑图 (透明底 SVG)，加载完成即以真图重绘
   const img = new Image();
   img.onload = () => {
-    if (canvas.width === 0) return; // canvas 已被释放
+    if (canvasGens.get(canvas) !== gen) return; // 该 canvas 已被更新的绘制取代
     const c = canvas.getContext('2d');
     if (!c) return;
     c.clearRect(0, 0, size, size);

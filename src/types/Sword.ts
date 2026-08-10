@@ -32,6 +32,8 @@ export interface SwordState {
   buffAtkTicks?: number;
   buffDefMult?: number;
   buffDefTicks?: number;
+  /** 行为统计 (续档恢复用，随剑意序列化) */
+  behavior?: BehaviorStats;
 }
 
 /** 行为标签 (用于剑成鉴定与评分) */

@@ -24,6 +24,14 @@ export interface GameSave {
   swords: SwordState[];
   rootId: string | null;
   maxGeneration: number;
+  /** 生态状态 (边界/庚金/火墙/天劫开关，续档恢复用) */
+  eco?: {
+    bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    food: [number, number, number][];
+    walls: [number, number][];
+    spawnFood: boolean;
+    isShrinking: boolean;
+  } | null;
 }
 
 export function defaultSave(): GameSave {
@@ -45,6 +53,7 @@ export function defaultSave(): GameSave {
     swords: [],
     rootId: null,
     maxGeneration: 1,
+    eco: null,
   };
 }
 
@@ -55,7 +64,16 @@ export class SaveManager {
       if (!raw) return defaultSave();
       const parsed = JSON.parse(raw) as GameSave;
       if (!parsed || parsed.version !== 1) return defaultSave();
-      return { ...defaultSave(), ...parsed };
+      const save = { ...defaultSave(), ...parsed };
+      // P1-6：字段级迁移 —— 旧档 swords[].origin 缺失时按 rootId 补默认
+      if (Array.isArray(save.swords)) {
+        for (const s of save.swords) {
+          if (!s.origin) s.origin = s.id === save.rootId ? 'seed' : 'wild';
+          if (s.genome && !Array.isArray(s.genome.affixes)) s.genome.affixes = [];
+        }
+      }
+      if (!Array.isArray(save.materialCounts)) save.materialCounts = {};
+      return save;
     } catch {
       return defaultSave();
     }

@@ -82,6 +82,8 @@ interface Fighter {
   poison: number;
   poisonDmg: number;
   guarded: boolean;
+  /** 后手反击：受击后下次攻击 +50% (counter 剑诀) */
+  counterReady: boolean;
 }
 
 const ACT_COST = 100;
@@ -189,7 +191,6 @@ export class Duel {
   constructor(pc: DuelCombatantConfig, nc: DuelCombatantConfig) {
     this.p = this.makeFighter('player', pc);
     this.n = this.makeFighter('npc', nc);
-    if (pc.art === 'strike') this.p.ap += ACT_COST * 0.5;
   }
 
   private makeFighter(side: DuelSideId, c: DuelCombatantConfig): Fighter {
@@ -216,6 +217,7 @@ export class Duel {
       poison: 0,
       poisonDmg: 0,
       guarded: false,
+      counterReady: false,
     };
   }
 
@@ -347,8 +349,12 @@ export class Duel {
     let total = 0;
     let crit = false;
     let dodged = false;
+    let thunderHit = false;
 
-    const cost = a.art === 'quick' ? Math.ceil(tech.energyCost * 0.7) : tech.energyCost;
+    // 剑诀精元修正：快剑 -20%、游斗 -50%
+    let cost = tech.energyCost;
+    if (a.art === 'quick') cost = Math.ceil(tech.energyCost * 0.8);
+    if (a.art === 'agile') cost = Math.ceil(tech.energyCost * 0.5);
     if (a.energy >= cost) a.energy -= cost;
 
     if (!isSupport) {
@@ -363,6 +369,23 @@ export class Duel {
         }
         const raw = Math.max(2, (a.sharp - d.tough * 0.4) * 3);
         let dmg = Math.round(raw * tech.dmgMult * rand(0.85, 1.2));
+        // —— 剑诀修正 ——
+        // 首轮抢攻：开局前 50 回合攻击 +20%
+        if (a.art === 'strike' && this.tick <= 50) dmg = Math.round(dmg * 1.2);
+        // 快剑：攻击 +10%
+        if (a.art === 'quick') dmg = Math.round(dmg * 1.1);
+        // 游斗：攻击 -10% (身法灵动，能耗已降)
+        if (a.art === 'agile') dmg = Math.round(dmg * 0.9);
+        // 后手反击：受击后下一次攻击 +50% (用后即消)
+        if (a.counterReady) {
+          dmg = Math.round(dmg * 1.5);
+          a.counterReady = false;
+        }
+        // 雷引：30% 几率引动雷威，伤害 +50%
+        if (a.art === 'thunder' && Math.random() < 0.3) {
+          thunderHit = true;
+          dmg = Math.round(dmg * 1.5);
+        }
         // 暴击：锋锐 + 杀性驱动 (凶悍之剑易出重创)
         const critChance = tech.critBonus + this.clamp(a.sharp * 0.02 + a.aggr * 0.15, 0, 0.4);
         if (Math.random() < critChance) {
@@ -376,6 +399,8 @@ export class Duel {
         if (tech.selfDmg) a.hp -= tech.selfDmg;
         d.hp -= dmg;
         total += dmg;
+        // 受击蓄势：防守方得后手反击之势 (counter 剑诀)
+        if (d.art === 'counter') d.counterReady = true;
       }
     }
 
@@ -397,7 +422,9 @@ export class Duel {
       const hit = pick(HIT_LINES);
       text = `${a.name}${opener}，使出「${techName}」${hit}，对${d.name}造成 ${total} 点剑伤！`;
       if (crit) text = `⚡ 剑意通神！${a.name}「${techName}」${pick(CRIT_LINES)}，对${d.name}造成 ${total} 点剑伤！`;
-      kind = crit ? 'crit' : 'atk';
+      if (thunderHit && !crit) text = `⛈ 雷威骤降！${a.name}「${techName}」裹挟天雷，对${d.name}造成 ${total} 点剑伤！`;
+      if (crit && thunderHit) text += ' ⛈ 雷威加身，天地变色！';
+      kind = crit ? 'crit' : thunderHit ? 'crit' : 'atk';
     }
 
     // —— 效果：攻击类附加效果 ——
@@ -418,8 +445,8 @@ export class Duel {
     if (tech.recoverEnergy) a.energy = Math.min(a.maxEnergy, a.energy + tech.recoverEnergy);
     if (tech.guard) a.guarded = true;
 
-    this.checkDeath(d, ev);
     ev.push({ text, kind, actor: a.side, dmg: total, techName, fx });
+    this.checkDeath(d, ev); // 终结事件须在攻击文本之后，避免 MUD 顺序颠倒
     return ev;
   }
 }

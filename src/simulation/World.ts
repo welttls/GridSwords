@@ -127,9 +127,12 @@ export class World {
 
   // ===== 剑意 =====
   addSword(agent: SwordAgent, x: number, y: number): void {
+    // 防御性校验：目标格已有剑意则拒绝 (正常路径由调用方保证空位)
+    if (this.grid[y][x]) return;
     this.grid[y][x] = agent.state.id;
     this.swords.set(agent.state.id, agent);
     if (!this.rootId) this.rootId = agent.state.id;
+    eventBus.emit(EVT.POP_CHANGE, this.swords.size);
   }
 
   removeSword(id: string): void {
@@ -341,11 +344,6 @@ export class World {
     }
   }
 
-  spawnFoodAt(x: number, y: number, value: number): void {
-    this.food[y][x] = value;
-    this.foodCount++;
-  }
-
   /** 开局固定撒 count 团庚金 (直接放置，不概率) */
   spawnInitialFood(count: number): void {
     for (let i = 0; i < count; i++) {
@@ -362,19 +360,6 @@ export class World {
   }
 
   /** 在中心附近生成食物 (开局补给，确保剑胚快速安家) */
-  spawnFoodAround(cx: number, cy: number, radius: number, count: number): void {
-    let placed = 0;
-    for (let attempt = 0; attempt < count * 30 && placed < count; attempt++) {
-      const x = cx + randomInt(-radius, radius);
-      const y = cy + randomInt(-radius, radius);
-      if (this.inBounds(x, y) && this.food[y][x] === 0 && !this.grid[y][x] && !this.walls[y][x]) {
-        this.food[y][x] = FOOD_ENERGY;
-        this.foodCount++;
-        placed++;
-      }
-    }
-  }
-
   removeFood(x: number, y: number): void {
     if (this.food[y][x] > 0) {
       this.food[y][x] = 0;
@@ -453,6 +438,53 @@ export class World {
       this.swords.size <= 1 ||
       (this.shrunkSpanX <= this.config.shrinkTargetSpan && this.shrunkSpanY <= this.config.shrinkTargetSpan)
     );
+  }
+
+  // ===== 生态序列化 (续档恢复用) =====
+  /** 导出生态状态：边界/庚金/火墙/天劫开关 (P1-4 续档不丢天劫进度) */
+  exportEcoState(): {
+    bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    food: [number, number, number][];
+    walls: [number, number][];
+    spawnFood: boolean;
+    isShrinking: boolean;
+  } {
+    const food: [number, number, number][] = [];
+    for (let y = 0; y < this.config.height; y++) {
+      for (let x = 0; x < this.config.width; x++) {
+        if (this.food[y][x] > 0) food.push([x, y, this.food[y][x]]);
+      }
+    }
+    const walls: [number, number][] = [];
+    for (let y = 0; y < this.config.height; y++) {
+      for (let x = 0; x < this.config.width; x++) {
+        if (this.walls[y][x]) walls.push([x, y]);
+      }
+    }
+    return {
+      bounds: { ...this.bounds },
+      food,
+      walls,
+      spawnFood: this.config.spawnFood,
+      isShrinking: this.config.isShrinking,
+    };
+  }
+
+  /** 恢复生态状态 (续档) */
+  restoreEcoState(eco: ReturnType<World['exportEcoState']>): void {
+    this.bounds = { ...eco.bounds };
+    this.config.spawnFood = eco.spawnFood;
+    this.config.isShrinking = eco.isShrinking;
+    this.foodCount = 0;
+    for (let y = 0; y < this.config.height; y++) {
+      this.food[y].fill(0);
+      this.walls[y].fill(false);
+    }
+    for (const [x, y, v] of eco.food) {
+      this.food[y][x] = v;
+      this.foodCount++;
+    }
+    for (const [x, y] of eco.walls) this.walls[y][x] = true;
   }
 
   // ===== 主循环 =====

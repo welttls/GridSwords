@@ -24,7 +24,7 @@ export const RECIPES: Material[] = [
     id: 'rootless_water',
     name: '无根水',
     unlock: 'start',
-    description: '流水无形，炉府灵动。全体剑意身法 +0.5（可叠加）。',
+    description: '流水无形，炉府灵动。全体剑意身法 +0.5（可叠加）：每 tick 有几率额外行动一步，移动更迅疾。',
     effect: { type: 'allSpeedBonus', value: 0.5 },
     count: 3,
   },

@@ -68,7 +68,8 @@ export class SwordAgent {
     this.state = state;
     this.brain = brain;
     this.world = world;
-    this.behavior = {
+    // P1-5：续档时恢复行为统计 (cellsVisited 需重建 visited 集合)
+    this.behavior = state.behavior ?? {
       eatCount: 0,
       attackCount: 0,
       killCount: 0,
@@ -78,6 +79,14 @@ export class SwordAgent {
       minHp: MAX_HP,
       fightsSurvived: 0,
     };
+    this.visited = new Set<number>();
+    // 以占位键重建 visited，使 visited.size 与已恢复的 cellsVisited 一致 (仅用于去重计数)
+    // 先计入当前位置，再以高段位占位键补齐，避免与实际格子索引冲突
+    const cur = this.cellIndex(state.position.x, state.position.y);
+    this.visited.add(cur);
+    for (let i = this.visited.size; i < this.behavior.cellsVisited; i++) {
+      this.visited.add(1_000_000 + i);
+    }
     this.visitCurrent();
   }
 
@@ -339,6 +348,8 @@ export class SwordAgent {
           }
           this.world.moveSword(this, x, y);
           this.visitCurrent();
+          // 击杀后立即移除防御者，防止其残留为「僵尸剑意」再行动一轮
+          this.world.removeSword(defender.state.id);
         } else {
           this.behavior.waitCount++; // 反震退回原位
         }
@@ -360,6 +371,12 @@ export class SwordAgent {
     tickBuffs(this.state);
     const dir = this.decide();
     this.act(dir);
+    // 无根水·身法加成：每 tick 有几率额外行动一步 (移动更迅疾，采气/避敌更快)
+    const speedBonus = this.world.modifiers.speedBonus;
+    if (speedBonus > 0 && Math.random() < speedBonus * 0.2) {
+      const extraDir = this.decide();
+      this.act(extraDir);
+    }
     // 剑意技能 (五行天赋 + 词条)：耗精元、有冷却
     if (this.skillCd <= 0 && this.state.energy > 5) {
       tryCastSkill(this, this.world, skillsFor(this.state.genome.element, this.state.genome.affixes));
@@ -367,9 +384,10 @@ export class SwordAgent {
 
     const mods = this.world.modifiers;
     // 剑谱越强，日常维持耗神越多：锋刃之利、剑体之沉、身法之疾皆耗精元
+    // (身法加成不再额外抬高基础消耗——额外移动本身已按行动计耗，收益与代价自平衡)
     const g = this.state.genome;
     let cost =
-      BASE_ENERGY_CONSUMPTION * (1 + (g.speed + mods.speedBonus) * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
+      BASE_ENERGY_CONSUMPTION * (1 + g.speed * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
     cost *= this.actedThisTick ? 1 : IDLE_MULT; // 静养耗精元大减
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
@@ -456,7 +474,7 @@ export class SwordAgent {
     if (b.killCount >= 5) add('kill5', false);
     if (b.attackCount + b.fightsSurvived >= 20) add('fight15', false);
     if (b.cellsVisited >= 400) add('roam400', false);
-    if (g.sharpness >= 7 && g.aggression >= 0.6) add('poison', true);
+    if (g.sharpness >= 8 && g.aggression >= 0.65 && this.state.age >= 2000) add('poison', true); // 淬毒：高锋锐+高杀性+久历杀伐
     if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 5) add('parasite', true);
   }
 }
