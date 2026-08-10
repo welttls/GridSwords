@@ -34,6 +34,8 @@ export interface SwordState {
   buffDefTicks?: number;
   /** 经历天雷 (雷劫液) 而存续：鉴定「雷劫余生」标签判定 (v1.9.1) */
   survivedThunder?: boolean;
+  /** 剑心境界 (0=凡心 1=通明 2=洞玄 3=忘我；决定 NN 隐藏层容量与境界加成，v1.12.0) */
+  mindRealm?: number;
   /** 行为统计 (续档恢复用，随剑意序列化) */
   behavior?: BehaviorStats;
 }

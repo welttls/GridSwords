@@ -14,6 +14,13 @@ export function buildMenu(host: HTMLElement, game: Game): void {
   const intro = el('p', 'menu-intro', '你是一名剑修弟子。十日内，于剑域之中投放炉材、撒布庚金之气、默许剑潮起落，观凡铁剑意在采气、搏杀、衍生与剑悟中蜕变，最终淬炼出独属于你的本命剑意，赴宗门大比，名动万剑榜。');
   screen.appendChild(intro);
 
+  // v1.12.0：剑尘计数展示（炼成之剑的遗蜕，开局自动淬入剑胚）
+  const dust = game.swordDust();
+  const dustNote = dust > 0
+    ? `剑尘遗蜕 ×${dust} —— 炼成之剑的遗蜕，开局自动淬入剑胚（四维 +0.5）`
+    : '剑尘遗蜕 ×0 —— 天劫炼成可得，开局自动淬入剑胚（四维 +0.5）';
+  screen.appendChild(el('p', 'menu-dust' + (dust > 0 ? ' has' : ''), dustNote));
+
   const buttons = el('div', 'menu-buttons');
   const mk = (label: string, fn: () => void, cls = 'btn-gold') => {
     const b = el('button', `btn ${cls}`, label);
@@ -55,8 +62,8 @@ export function buildEmbryoSelect(host: HTMLElement, game: Game): void {
   }
   screen.appendChild(grid);
 
-  if (game.hasSwordDust()) {
-    screen.appendChild(el('p', 'menu-intro dim', '（已持有「剑尘」，将自动淬入剑胚，微量提升初始属性）'));
+  if (game.swordDust() > 0) {
+    screen.appendChild(el('p', 'menu-intro dim', `（持有「剑尘」×${game.swordDust()}，将自动淬入剑胚，四维 +0.5）`));
   }
 
   const back = el('button', 'btn btn-ghost', '← 返回');

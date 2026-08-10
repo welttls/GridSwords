@@ -3,6 +3,7 @@ import { ELEMENT_TALENTS, AFFIX_SKILLS } from './Skills';
 import type { SwordSkill } from './Skills';
 import { ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
+import { MIND_DUEL_BONUS, MIND_ENERGY_MULT } from '../constants';
 
 export type DuelSideId = 'player' | 'npc';
 
@@ -58,6 +59,8 @@ export interface DuelCombatantConfig {
   genome: Genome;
   /** 剑诀 id (仅玩家) */
   art?: string;
+  /** 剑心境界 (v1.12.0)：越高战力加成越多、出招精元越省 */
+  mindRealm?: number;
 }
 
 /** 决斗者内部状态 */
@@ -82,6 +85,8 @@ interface Fighter {
   poison: number;
   poisonDmg: number;
   guarded: boolean;
+  /** 剑心境界 (v1.12.0) */
+  mindRealm?: number;
   /** 后手反击：受击后下次攻击 +50% (counter 剑诀) */
   counterReady: boolean;
 }
@@ -196,17 +201,22 @@ export class Duel {
   private makeFighter(side: DuelSideId, c: DuelCombatantConfig): Fighter {
     const g = c.genome;
     const affixes = g.affixes ?? [];
-    const maxHp = Math.round(70 + g.toughness * 8);
+    // v1.12.0：剑心境界战力加成（锋锐/坚韧/速度/感知 各 +N），剑体上限随加成后坚韧
+    const realm = c.mindRealm ?? 0;
+    const bonus = MIND_DUEL_BONUS[Math.min(MIND_DUEL_BONUS.length - 1, Math.max(0, realm))] ?? 0;
+    const tough = g.toughness + (affixes.includes('fight15') ? 1.5 : 0) + bonus;
+    const maxHp = Math.round(70 + tough * 8);
     return {
       side,
       name: c.name,
       element: c.element,
       art: c.art,
       affixes,
-      sharp: g.sharpness + (affixes.includes('kill5') ? 1.5 : 0),
-      tough: g.toughness + (affixes.includes('fight15') ? 1.5 : 0),
-      speed: g.speed,
-      perc: g.perception + (affixes.includes('roam400') ? 2 : 0),
+      mindRealm: realm,
+      sharp: g.sharpness + (affixes.includes('kill5') ? 1.5 : 0) + bonus,
+      tough,
+      speed: g.speed + bonus,
+      perc: g.perception + (affixes.includes('roam400') ? 2 : 0) + bonus,
       aggr: g.aggression,
       strat: g.strategy,
       hp: maxHp,
@@ -351,10 +361,10 @@ export class Duel {
     let dodged = false;
     let thunderHit = false;
 
-    // 剑诀精元修正：快剑 -20%、游斗 -50%
-    let cost = tech.energyCost;
-    if (a.art === 'quick') cost = Math.ceil(tech.energyCost * 0.8);
-    if (a.art === 'agile') cost = Math.ceil(tech.energyCost * 0.5);
+    // 剑诀精元修正：快剑 -20%、游斗 -50%；剑心境界越明出招越省 (v1.12.0)
+    let cost = Math.ceil(tech.energyCost * (MIND_ENERGY_MULT[a.mindRealm ?? 0] ?? 1));
+    if (a.art === 'quick') cost = Math.ceil(cost * 0.8);
+    if (a.art === 'agile') cost = Math.ceil(cost * 0.5);
     if (a.energy >= cost) a.energy -= cost;
 
     if (!isSupport) {

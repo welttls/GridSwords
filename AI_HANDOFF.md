@@ -51,7 +51,7 @@ src/
 ├── main.ts / Game.ts / constants.ts   # 入口 / 唯一编排者 / 全部平衡参数
 ├── types/    # Genome / Sword / Environment / Material
 ├── simulation/  # World / SwordAgent / NeuralNet / Genetics / BattleResolver / Duel / Skills (完全 headless)
-├── ui/       # Renderer / HUD / Menu / DayPanel / Appraisal / Battle / Ranking / Codex / SwordDetail / swordIcon / modals
+├── ui/       # Renderer / HUD / Menu / DayPanel / Appraisal / Battle / Ranking / Codex / SwordDetail / swordIcon / modals / tooltip
 ├── data/     # RecipeDB / SwordArts / NPCs / SaveManager / RankingManager / AffixDB
 └── utils/    # mathUtils / eventBus / dom
 ```
@@ -72,7 +72,10 @@ src/
 5. **剑成鉴定**：评分 = 存续×10 + 血脉相承×20 + 剑谱总和×0.5 + 本性殊异(≤15)。
 6. **宗门大比**：AP 半即时制 Duel，选对手 + 剑诀(strike/counter/agile/quick/thunder)，词条/技能联动。
 7. **万剑榜**：前 20 名，`history.length>=3` 后按排名解锁新材料。
-8. **剑尘(遗蜕)**：**炼成**(天劫后有幸存者)即得 `hasSwordDust`，开局自动淬入剑胚(+0.5 四维)；**失败不得**。已从炉材移除 `sword_dust` 材料(无双轨)，`MaterialUnlock.firstCompletion` 类型保留备未来用。
+8. **剑尘(遗蜕)**：**炼成**(天劫后有幸存者)即得 `swordDust` +1（上限 `MAX_SWORD_DUST=9`），开局自动淬入剑胚(+0.5 四维)并消耗 1；**失败不得**。主菜单常显「剑尘遗蜕 ×N」、选胚页带数量提示。旧档 `hasSwordDust===true` 自动迁移为 1 枚（`SaveManager.load`）。
+9. **剑心境界(v1.12.0)**：凡心→通明→洞玄→忘我。历经≥8/20/45 战 或 击破≥3/6/12 即开悟——`SimpleNN.expandHidden` 隐藏层 8→10→12→16（新权重置 0，靠突变调优），精元消耗 -5/-10/-15%、技能触发 ×1/×1/×1.25/×1.5；宗门大比四维 +0/+0.5/+1/+2 且剑体上限随加成后坚韧。子代继承境界(`SwordState.mindRealm`)。**注意**：`exportSave` 从活 brain 取权重（剑心扩容后 state 快照过期）；`continueRun`/`agentFromState` 按 `mindRealm` 推导隐藏数重建 NN（`mindSizes`）。
+10. **血亲不相攻(v1.12.0)**：`World.isKin`（lineage 链根相等，`rootCache` 缓存）——本能/选敌/技能弹道/AoE 全部排除血亲，相撞视作阻挡绕行（不战斗、不寄灵）。注意：重种后的新本命是**新链根**，与旧血脉链不相亲；rootCache 依赖 lineage 只增不删。
+11. **技能击杀计击破(v1.12.0)**：`Skills.damageSword(attacker,…)` 击杀时 `killCount++` + 尸身化食 + 以战养战回能回血 + 寄灵转化（与近战一致）；技能命中**不加** `attackCount`（护 fight15/淬毒稀有度）。
 
 **属性语义(v1.6.0 起)**：锋锐=攻击(含暴击)、坚韧=防御、感知=闪避率+视野、速度=蓄条/大比出手(世界内由 `speedBonus` 材料提供移动加速)、杀性=凶性(暴击)、策略=孤狼/合击。
 
@@ -101,7 +104,7 @@ src/
 ## 八、工作流约定(务必遵守)
 
 1. **每次 git 提交** 必须先在 `CHANGELOG.md` 顶部新增版本说明，commit message 附版本号。
-2. **版本号规则**：功能新增 → 次版本 +1(x.y.0)；仅修复/微调 → 修订号 +1(x.y.z)。
+2. **版本号规则（v1.12.0 起定）**：**十进制滚动，9 进 1**——功能新增 → 末位递增（1.0→1.1→…→1.9→**2.0**），**不要出现 1.10/1.11/1.12 这类写法**；仅修复/微调 → 末位 +1（如 2.0.1）。历史 1.10~1.12 为旧规遗留，本次维持 v1.12.0，**下一功能版本为 2.0**。
 3. 改完跑 `npm run build`。
 4. 涉及玩法平衡的改动，先用 headless 批量测试验证(参考 `swordforge.md` 里的调参方法与基准：无干预 avg~6 / 扶持 avg~15)。
 5. **【AI 自动维护本文件】**——这是本手册的自我更新机制，务必遵守：
@@ -141,11 +144,15 @@ src/
 - **World 增量集合(v1.8.1)**：`World` 维护 `foodCells`/`wallCells` 两个 `Set<number>`(键=`y*width+x`)，渲染端只遍历集合而非全网格——**新增/移除食物或墙的逻辑必须同步维护这两个集合**(`spawnFood`/`removeFood`/`spawnCorpseFood`/`spawnMegaFood`/`spawnFireWalls`/`shrink`/`wallExpiry`/`restoreEcoState` 等处)。
 - **特效系统(v1.9.0)**：野外 `Renderer` 三层特效——粒子 `spawnBurst` / `effects` 弹道环束(proj/ring/beam，`updateEffects`+`drawEffects`) / `floatTexts` 飘字(Pixi Text，上限8、destroy 清理)，**全部技能(projectile/aoe/line/heal/buff/teleport)施放均有技能名飘字**；buff 常驻光环与淬毒绿闪边在 `drawSword()` 直接读剑状态每帧绘制。大比 `BattleScene.playFx()` 按 `DuelFx` 播 DOM 特效(`.duel-fx` CSS)，strike 类(锋行/青藤缚等)也有基础斩击弧光。新增特效保持同款：字段级 handler、destroy 清理、飘字上限。
 - **存档时机**：除 5s 自动 + 事件触发外，`pagehide`/`visibilitychange(hidden)` 会再存一次(iOS `beforeunload` 不可靠)，防关页丢进度。
+- **剑心境界序列化(v1.12.0)**：`SwordState.mindRealm` 决定 NN 隐藏层容量——**`SimpleNN.sizes` 已改可变**；剑心扩容（`expandHidden`）后必须同步 `state.brainWeights/brainBiases`（`checkMindRealm` 内已做），且 `Game.exportSave` 从**活 brain** 取权重（不要用 state 快照，扩容后会过期）；重建 NN 一律用 `mindSizes(realm)`（Game.continueRun/agentFromState）。
+- **全局浮窗(v1.12.0)**：`src/ui/tooltip.ts` 的 `initTooltips()` 在 main.ts 初始化一次——`.tip[data-tip]` 由 document 级委托接管，body 级单一 `fixed` 提示层（视口钳制、滚动/点击即隐藏）。新 `.tip` 元素无需额外处理；别再给 `.tip` 写 `::after` 伪元素浮窗（滚动容器内会被裁剪）。
+- **血亲缓存(v1.12.0)**：`World.rootCache`（id→链根）依赖 lineage **只增不删**——勿清理 lineage 条目；重种本命产生新链根，与旧血脉链不相亲（语义如此）。
 
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
 
+- **v1.12.0（已完成）**：剑心四境（NN 隐藏层 8→10→12→16 扩容 + 精元折扣 + 技能触发加成，大比四维 +N 战力优势，子代继承）；血亲不相攻（lineage 链根判定，本能/技能/AoE 排除）；技能击杀计入击破 + 尸身化食/以战养战/寄灵；剑潮免弹窗卡死修复 + 自动投放 toast；灵鉴浮窗改 body 级 tooltip（防裁剪）；剑尘改计数（上限 9，主菜单显示）；觅食调整（食物权重 1.0 + 近距强采食）；分化排查（条件=精元满 80，灵鉴注明；觅食增强后约半数剑意分化）。平衡新基线：无干预第 9 日存活 ~20-28 柄（用户不要求维持旧 6/14）。
 - 2026-08-10 v1.11.0：悟道之树外来血脉不再拼接本命(rootId)（树根显「外来剑意」）；血脉断绝弹窗三选项+同日内限弹 1 次+HUD「重种本命」「剑潮」按钮；词条重设——百炼 25 战、游历改足迹密度(≥350 且 ≥0.35/tick)更稀有（headless：无干预 avg 6 / 扶持 avg 13）。
 - 2026-08-10 v1.10.0：失败弹窗(峰值/全灭日+重新炼剑快捷入口)、炼剑界面五行+本命/外来分类条、剑潮弹窗升级(本局记忆上次选择+6 秒倒计时超时沿用/首日静待+免弹窗勾选)、存档新增 `dailyDropKind`/`dailyDropLocked`。
 - 2026-08-10 v1.9.2：技术债——打破 `World⇄SwordAgent` 循环依赖(type-only import)、`finishAppraisal` 接入 `RankingManager.submit`(现返回 list)、删除只写不读字段 `embryoElement`。

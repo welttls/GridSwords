@@ -6,7 +6,7 @@ import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, strategyLabel } from '../simulation/Genetics';
 import { affixDesc, affixName } from '../data/AffixDB';
 import { skillsFor } from '../simulation/Skills';
-import { TICKS_PER_DAY, TICKS_PER_SHICHEN } from '../constants';
+import { TICKS_PER_DAY, TICKS_PER_SHICHEN, MIND_REALMS, MIND_REALM_THRESHOLDS } from '../constants';
 
 const TIPS: Record<string, string> = {
   锋锐: '攻伐之力：碰撞伤害 = 锋锐 − 敌方坚固×0.5（至少 1 点）；锋锐亦增暴击之威。锋刃越利，日常维持耗神越多。',
@@ -15,7 +15,7 @@ const TIPS: Record<string, string> = {
   感知: '灵识：探查范围 = 感知×2 格；与对手比感知，感知高者闪避来剑更易。',
   杀性: '好战之心：越高越主动寻敌；杀性凶者易出暴击重创。',
   策略: '合击者喜集群行动、遥相呼应；孤狼者独来独往、不愿近人。',
-  精元: '养分：移动、碰撞、分化皆耗精元，精元枯竭则剑体崩解。剑谱属性越高，每日维持耗神越多。',
+  精元: '养分：移动、碰撞、分化皆耗精元，精元枯竭则剑体崩解；剑谱属性越高，每日维持耗神越多。精元满 80 即分化剑子（新分化后回落到 40）。',
   剑体: '剑意之体：剑体归零则剑意消亡。',
   存续: '自诞生起存活的时日（1 日 = 12 时辰，1 时辰 = 8 刻）。',
   足迹: '踏足过的剑域格数。',
@@ -23,7 +23,7 @@ const TIPS: Record<string, string> = {
   历经: '经历过的碰撞战斗场数。',
   击破: '击溃的敌方剑意数。',
   剑子: '由己身分化衍生的后代剑意数。',
-  剑心: '感知 26 维 → 玄机 8 层 → 四向抉择 4 路，玄机暗藏。',
+  剑心: '此剑的灵识中枢：每一瞬扫视八方，权衡庚金、敌剑与壁垒，再择向而行。历经杀伐游历，灵识渐开、愈战愈明——剑心随「历经/击破」晋境，扩容玄机并增益战力（精元更省、更擅施法）。',
   本命血脉: '出自你亲手种下的剑胚一脉，血统延续至今，是剑成鉴定的正主。',
   外来剑意: '随剑潮涌入的游离之剑，非本命一脉，可为辅翼亦可为敌。',
 };
@@ -134,12 +134,21 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
   }
   body.appendChild(grid);
 
-  // 剑心
+  // 剑心 (v1.12.0：境界 + 白话描述 + 晋境进度；删去「26 维→8 层→4 路」行话)
   body.appendChild(el('h3', 'section-title', '剑心'));
+  const realm = s.mindRealm ?? 0;
+  const realmInfo = MIND_REALMS[Math.min(MIND_REALMS.length - 1, realm)];
+  const battles = b.attackCount + b.fightsSurvived;
+  const isMax = realm >= MIND_REALMS.length - 1;
+  const th = MIND_REALM_THRESHOLDS[realm];
+  const progress = isMax
+    ? '已臻化境，剑心通神'
+    : `晋境：历经 ${Math.min(battles, th.battles)}/${th.battles} 战 · 击破 ${Math.min(b.killCount, th.kills)}/${th.kills}`;
   const mind = el('div', 'sd-mind tip');
   mind.setAttribute('data-tip', TIPS['剑心'] ?? '');
-  mind.appendChild(el('p', '', '感知 26 维 → 玄机 8 层 → 四向抉择 4 路'));
-  mind.appendChild(el('p', 'sd-mind-sub', '此剑之灵，玄机暗藏于万变之中。'));
+  mind.appendChild(el('p', 'sd-mind-name', `剑心 · ${realmInfo.name}`));
+  mind.appendChild(el('p', '', `此剑的灵识中枢：每一瞬扫视八方，权衡庚金、敌剑与壁垒，再择向而行。历经杀伐游历，灵识渐开——如今已能洞察 ${realmInfo.hidden} 重玄机。`));
+  mind.appendChild(el('p', 'sd-mind-sub', progress));
   body.appendChild(mind);
 
   const overlay = openModal('剑意 · 灵鉴', body, {

@@ -42,6 +42,8 @@ import {
   FOOD_DROP_BATCH,
   EMERGENCE_THRESHOLD,
   EMERGENCE_MIN_GEN,
+  MAX_SWORD_DUST,
+  mindSizes,
 } from './constants';
 import { Duel } from './simulation/Duel';
 
@@ -173,8 +175,9 @@ export class Game {
     openCodex(this);
   }
 
-  hasSwordDust(): boolean {
-    return this.save.hasSwordDust;
+  /** 当前持有剑尘数量 (v1.12.0：炼成 +1、开局淬炼消耗 1，上限 MAX_SWORD_DUST) */
+  swordDust(): number {
+    return this.save.swordDust;
   }
 
   // ================= 开局 =================
@@ -202,14 +205,14 @@ export class Game {
 
   private doStartNewRun(element: Element): void {
     this.embryoGenome = randomGenome(element);
-    // 剑尘遗蜕：开局自动淬入 (消耗 hasSwordDust，不与此局炉府 sword_dust 次数叠加)
-    if (this.save.hasSwordDust) {
+    // 剑尘遗蜕：开局自动淬入 (消耗 swordDust 计数)
+    if (this.save.swordDust > 0) {
       const g = this.embryoGenome;
       g.sharpness += 0.5;
       g.toughness += 0.5;
       g.speed += 0.5;
       g.perception += 0.5;
-      this.save.hasSwordDust = false;
+      this.save.swordDust--;
     }
 
     const world = new World();
@@ -230,6 +233,7 @@ export class Game {
       parentId: '',
       generation: 1,
       origin: 'seed',
+      mindRealm: 0, // v1.12.0：剑胚之剑心，起于凡心
     };
     const brain = new SimpleNN(NN_LAYERS, false);
     brain.setFromFlat(st.brainWeights, st.brainBiases);
@@ -299,7 +303,8 @@ export class Game {
     this.embryoGenome = this.save.embryoGenome;
 
     for (const st of this.save.swords) {
-      const brain = new SimpleNN(NN_LAYERS, false);
+      // v1.12.0：按剑心境界推导隐藏层容量重建 NN（扩容后的 brainWeights 长度已变化）
+      const brain = new SimpleNN(mindSizes(st.mindRealm ?? 0), false);
       brain.setFromFlat(st.brainWeights, st.brainBiases);
       const agent = new SwordAgent(st, brain, world);
       world.addSword(agent, st.position.x, st.position.y);
@@ -337,7 +342,8 @@ export class Game {
   private agentFromState(st: SwordState): SwordAgent {
     const w = new World({ currentDay: this.save.day });
     w.tickCounter = this.save.tickCounter;
-    const brain = new SimpleNN(NN_LAYERS, false);
+    // v1.12.0：按剑心境界推导隐藏层容量重建 NN
+    const brain = new SimpleNN(mindSizes(st.mindRealm ?? 0), false);
     brain.setFromFlat(st.brainWeights, st.brainBiases);
     return new SwordAgent(st, brain, w);
   }
@@ -568,6 +574,7 @@ export class Game {
       parentId: '',
       generation: 1,
       origin: 'seed',
+      mindRealm: 0, // v1.12.0：重种剑胚亦起于凡心
     };
     const brain = new SimpleNN(NN_LAYERS, false);
     brain.setFromFlat(st.brainWeights, st.brainBiases);
@@ -641,6 +648,10 @@ export class Game {
     // v1.10.0：勾选「本局一直用此选择」后不再弹窗，直接按上次选择投放
     if (this.save.dailyDropLocked && this.save.dailyDropKind) {
       this.chooseDailyDrop(this.save.dailyDropKind);
+      // v1.12.0：免弹窗自动投放后恢复走时（原：checkDay 已置 paused=true，此处不恢复导致卡死）
+      this.paused = false;
+      this.refreshHudControls();
+      toast(`第${day}日子时，剑潮已按本局选择自动投放。`);
       return;
     }
     this.paused = true;
@@ -1057,7 +1068,7 @@ export class Game {
       wins: 0,
     };
 
-    this.save.hasSwordDust = true; // 炼成之剑，遗蜕为尘（失败不得，见 endTribulation）
+    this.save.swordDust = Math.min(MAX_SWORD_DUST, this.save.swordDust + 1); // 炼成之剑，遗蜕为尘（失败不得，见 endTribulation）
     this.save.finishedGames++;
     this.save.activeRun = false;
     // v1.9.2：复用 RankingManager.submit (插入+排序+截断+排名+解锁计算)，消除内联重复
@@ -1131,6 +1142,7 @@ export class Game {
         element: playerState.genome.element,
         genome: playerState.genome,
         art: artId,
+        mindRealm: playerState.mindRealm ?? 0, // v1.12.0：剑心境界计入大比战力
       },
       {
         name: opp.name,
@@ -1263,14 +1275,22 @@ export class Game {
       bestScore: this.save.bestScore,
       finishedGames: this.save.finishedGames,
       hasBeatenFirstOpponent: this.save.hasBeatenFirstOpponent,
-      hasSwordDust: this.save.hasSwordDust,
+      swordDust: this.save.swordDust,
       activeRun: this.scene === 'forge' && !!this.world,
       embryoGenome: this.embryoGenome,
       day: this.world?.config.currentDay ?? 1,
       tickCounter: this.world?.tickCounter ?? 0,
       materialCounts: this.save.materialCounts,
       feedDropped: this.save.feedDropped,
-      swords: this.world ? [...this.world.swords.values()].map((a) => ({ ...a.state, behavior: a.behavior })) : [],
+      swords: this.world
+        ? [...this.world.swords.values()].map((a) => ({
+            ...a.state,
+            // v1.12.0：从活 brain 取权重（剑心扩容后 state 快照可能过期）
+            brainWeights: a.brain.getWeights(),
+            brainBiases: a.brain.getBiases(),
+            behavior: a.behavior,
+          }))
+        : [],
       rootId: this.world?.rootId ?? null,
       maxGeneration: this.world?.maxGeneration ?? 1,
       eco: this.world ? this.world.exportEcoState() : null,

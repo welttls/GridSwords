@@ -56,6 +56,8 @@ export class World {
   private foodSet = new Set<number>();
   /** 火墙/障碍格键集合 (渲染增量遍历用) */
   private wallSet = new Set<number>();
+  /** 血亲链根缓存 (id -> 链根 id；lineage 只增不删，缓存长期有效) v1.12.0 */
+  private rootCache = new Map<string, string>();
 
   constructor(config: Partial<WorldConfig> = {}) {
     this.config = {
@@ -115,6 +117,31 @@ export class World {
   /** 火墙/障碍格键集合 (渲染遍历用，键 = y*width+x) */
   get wallCells(): Set<number> {
     return this.wallSet;
+  }
+
+  /** 血统链根：沿 lineage 回溯至 parentId='' 的根 (带缓存；无记录则自身即根) */
+  lineageRoot(id: string): string {
+    const cached = this.rootCache.get(id);
+    if (cached) return cached;
+    let cur = id;
+    let guard = 0;
+    while (cur && guard++ < 5000) {
+      const info = this.lineage.get(cur);
+      if (!info) break;
+      if (!info.parentId) {
+        this.rootCache.set(id, cur);
+        return cur;
+      }
+      cur = info.parentId;
+    }
+    this.rootCache.set(id, id);
+    return id;
+  }
+
+  /** 血亲判定：同一血统链根即同源一脉，不相攻 (v1.12.0) */
+  isKin(a: { state: { id: string } }, b: { state: { id: string } }): boolean {
+    if (a.state.id === b.state.id) return true;
+    return this.lineageRoot(a.state.id) === this.lineageRoot(b.state.id);
   }
 
   private cellKey(x: number, y: number): number {
@@ -215,6 +242,7 @@ export class World {
       parentId: parent.state.id,
       generation: parent.state.generation + 1,
       origin: parent.state.origin,
+      mindRealm: parent.state.mindRealm ?? 0, // v1.12.0：剑子继承父代剑心境界（脑克隆自带容量）
     };
     const child = new SwordAgent(childState, brain, this);
     this.addSword(child, nx, ny);
@@ -250,6 +278,7 @@ export class World {
           parentId: '',
           generation: 1,
           origin: 'wild',
+          mindRealm: 0, // v1.12.0：游离剑意起于凡心
         };
         const agent = new SwordAgent(st, brain, this);
         this.addSword(agent, x, y);
@@ -328,6 +357,7 @@ export class World {
       parentId: attacker.state.id,
       generation: attacker.state.generation + 1,
       origin: attacker.state.origin,
+      mindRealm: attacker.state.mindRealm ?? 0, // v1.12.0：剑子继承寄主剑心境界
     };
     const child = new SwordAgent(st, brain, this);
     this.addSword(child, x, y);

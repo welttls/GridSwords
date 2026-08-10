@@ -1,7 +1,7 @@
 import type { World } from './World';
 import type { SwordAgent } from './SwordAgent';
 import type { Element, Genome } from '../types';
-import { MAX_HP, BUFF_CAST_CHANCE } from '../constants';
+import { MAX_HP, BUFF_CAST_CHANCE, MIND_CAST_MULT } from '../constants';
 import { eventBus, EVT } from '../utils/eventBus';
 import { clamp, randomInt } from '../utils/mathUtils';
 
@@ -164,6 +164,8 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
   const hpRatio = st.hp / MAX_HP;
   const energy = st.energy;
   const enemy = agent.nearestTarget('sword');
+  // v1.12.0：剑心境界愈高，愈擅施法（触发率加成）
+  const castMult = MIND_CAST_MULT[st.mindRealm ?? 0] ?? 1;
 
   for (const s of skills) {
     if (energy < s.energyCost) continue;
@@ -171,19 +173,19 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
     switch (s.kind) {
       case 'projectile':
       case 'line':
-        want = !!enemy && enemy.dist <= (s.range ?? 10) && Math.random() < s.castChance;
+        want = !!enemy && enemy.dist <= (s.range ?? 10) && Math.random() < s.castChance * castMult;
         break;
       case 'aoe':
-        want = !!enemy && enemy.dist <= (s.radius ?? 3) && Math.random() < s.castChance;
+        want = !!enemy && enemy.dist <= (s.radius ?? 3) && Math.random() < s.castChance * castMult;
         break;
       case 'heal':
-        want = hpRatio < 0.45 && Math.random() < s.castChance;
+        want = hpRatio < 0.45 && Math.random() < s.castChance * castMult;
         break;
       case 'teleport':
-        want = (hpRatio < 0.35 || (enemy !== null && enemy.dist <= 3)) && Math.random() < s.castChance;
+        want = (hpRatio < 0.35 || (enemy !== null && enemy.dist <= 3)) && Math.random() < s.castChance * castMult;
         break;
       case 'convert':
-        want = energy > s.energyCost + 15 && hpRatio < 0.65 && Math.random() < s.castChance;
+        want = energy > s.energyCost + 15 && hpRatio < 0.65 && Math.random() < s.castChance * castMult;
         break;
       case 'buff':
         // 有敌临近才施放，且不重复叠buff
@@ -192,7 +194,7 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
           enemy.dist <= 8 &&
           !(st.buffAtkTicks ?? 0 > 0) &&
           !(st.buffDefTicks ?? 0 > 0) &&
-          Math.random() < BUFF_CAST_CHANCE;
+          Math.random() < BUFF_CAST_CHANCE * castMult;
         break;
     }
     if (!want) continue;
@@ -230,9 +232,11 @@ export function castSkill(
       let hit = 0;
       for (const other of world.swords.values()) {
         if (other.state.id === st.id) continue;
+        // v1.12.0：血亲不相攻——AoE 不伤同源一脉
+        if (world.isKin(agent, other)) continue;
         const d = Math.abs(other.state.position.x - x) + Math.abs(other.state.position.y - y);
         if (d <= r) {
-          damageSword(other, Math.round(dmgBase * (s.dmgMult ?? 1.5) * 0.8));
+          damageSword(agent, other, Math.round(dmgBase * (s.dmgMult ?? 1.5) * 0.8));
           if (s.affix === 'poison' && !(other.state.poisonTicks ?? 0 > 0)) {
             other.state.poisonDmg = 1;
             other.state.poisonTicks = 20;
@@ -295,8 +299,9 @@ function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range:
     const id = world.swordIdAt(x, y);
     if (id) {
       const other = world.swords.get(id);
-      if (other && other.state.id !== st.id) {
-        damageSword(other, Math.round(dmg * (0.85 + Math.random() * 0.3)));
+      // v1.12.0：血亲不相攻——弹道/光束不伤同源一脉
+      if (other && other.state.id !== st.id && !world.isKin(agent, other)) {
+        damageSword(agent, other, Math.round(dmg * (0.85 + Math.random() * 0.3)));
         if (lifesteal > 0) {
           st.hp = Math.min(MAX_HP, st.hp + Math.round(dmg * lifesteal));
         }
@@ -310,10 +315,27 @@ function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range:
   return hit;
 }
 
-function damageSword(other: SwordAgent, dmg: number): void {
+/** 对敌造成伤害；若致其陨落，记入攻击方「击破」并触发尸身化食/以战养战/寄灵 (v1.12.0：与近战一致) */
+function damageSword(attacker: SwordAgent, other: SwordAgent, dmg: number): void {
   other.state.hp -= Math.max(1, dmg);
   eventBus.emit(EVT.BATTLE_HIT, { x: other.state.position.x, y: other.state.position.y, element: other.state.genome.element, intensity: dmg });
-  if (other.state.hp <= 0) other.die();
+  if (other.state.hp <= 0) {
+    if (attacker && attacker.state.id !== other.state.id) {
+      attacker.behavior.killCount++;
+      const { x, y } = other.state.position;
+      const corpseValue = Math.max(4, other.state.energy * 0.4);
+      attacker.state.energy += other.state.energy * 0.5; // 以战养战，夺敌灵机
+      attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + 5); // 胜者回气
+      // 寄灵：化敌为剑子（罕有能力，同近战路径）
+      if (attacker.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
+        const converted = attacker.world.spawnParasite(attacker, x, y);
+        if (!converted) attacker.world.spawnCorpseFood(x, y, corpseValue);
+      } else {
+        attacker.world.spawnCorpseFood(x, y, corpseValue);
+      }
+    }
+    other.die();
+  }
 }
 
 /** 瞬移落点：随机方向若干格内的空位 */

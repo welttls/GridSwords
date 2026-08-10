@@ -6,7 +6,7 @@ import { gaussianRandom } from '../utils/mathUtils';
  * 权重以扁平数组存储：weights[l] 为从层 l 到 l+1 的矩阵 (rows = sizes[l], cols = sizes[l+1])。
  */
 export class SimpleNN {
-  readonly sizes: number[];
+  sizes: number[];
   private weights: number[][];
   private biases: number[][];
 
@@ -83,5 +83,34 @@ export class SimpleNN {
     const nn = new SimpleNN(this.sizes, false);
     nn.setFromFlat(this.getWeights(), this.getBiases());
     return nn;
+  }
+
+  /**
+   * 剑心开悟：隐藏层扩容 (v1.12.0)。
+   * 新权重/偏置全部置 0——升级瞬间决策行为不变，靠后续突变逐代调优。
+   */
+  expandHidden(newHidden: number): void {
+    if (newHidden <= this.sizes[1]) return;
+    const [input, , output] = this.sizes;
+    const oldHidden = this.sizes[1];
+    // 层 0 (input→hidden)：旧列保留，新增列置 0
+    const w0 = this.weights[0];
+    const nw0 = new Array<number>(input * newHidden).fill(0);
+    for (let i = 0; i < input; i++) {
+      for (let j = 0; j < oldHidden; j++) nw0[i * newHidden + j] = w0[i * oldHidden + j];
+    }
+    // 层 1 (hidden→output)：旧行保留，新行置 0
+    const w1 = this.weights[1];
+    const nw1 = new Array<number>(newHidden * output).fill(0);
+    for (let j = 0; j < oldHidden; j++) {
+      for (let k = 0; k < output; k++) nw1[j * output + k] = w1[j * output + k];
+    }
+    // 隐藏层 bias：旧保留，新增置 0
+    const b0 = this.biases[0];
+    const nb0 = new Array<number>(newHidden).fill(0);
+    for (let j = 0; j < oldHidden; j++) nb0[j] = b0[j];
+    this.sizes[1] = newHidden;
+    this.weights = [nw0, nw1];
+    this.biases = [nb0, this.biases[1]];
   }
 }

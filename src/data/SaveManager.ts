@@ -29,7 +29,8 @@ export interface GameSave {
   bestScore: number;
   finishedGames: number;
   hasBeatenFirstOpponent: boolean;
-  hasSwordDust: boolean;
+  /** 剑尘遗蜕数量 (v1.12.0：由布尔改为计数，炼成 +1、开局淬炼消耗 1，上限 MAX_SWORD_DUST) */
+  swordDust: number;
   // —— 当前局 (支持中断续玩) ——
   activeRun: boolean;
   embryoGenome: Genome | null;
@@ -68,7 +69,7 @@ export function defaultSave(): GameSave {
     bestScore: 0,
     finishedGames: 0,
     hasBeatenFirstOpponent: false,
-    hasSwordDust: false,
+    swordDust: 0,
     activeRun: false,
     embryoGenome: null,
     day: 1,
@@ -95,11 +96,17 @@ export class SaveManager {
       const parsed = JSON.parse(raw) as GameSave;
       if (!parsed || parsed.version !== 1) return defaultSave();
       const save = { ...defaultSave(), ...parsed };
+      // v1.12.0：剑尘由布尔改为计数——旧档 hasSwordDust===true 迁移为 1 枚
+      if ((parsed as { hasSwordDust?: boolean }).hasSwordDust === true) {
+        save.swordDust = Math.max(1, save.swordDust ?? 0);
+      }
       // P1-6：字段级迁移 —— 旧档 swords[].origin 缺失时按 rootId 补默认
       if (Array.isArray(save.swords)) {
         for (const s of save.swords) {
           if (!s.origin) s.origin = s.id === save.rootId ? 'seed' : 'wild';
           if (s.genome && !Array.isArray(s.genome.affixes)) s.genome.affixes = [];
+          // v1.12.0：剑心境界缺省补凡心
+          if (s.mindRealm === undefined) s.mindRealm = 0;
         }
       }
       // 鉴定续玩：补 winnerState 字段迁移
@@ -107,6 +114,7 @@ export class SaveManager {
       if (ws) {
         if (!ws.origin) ws.origin = 'seed';
         if (ws.genome && !Array.isArray(ws.genome.affixes)) ws.genome.affixes = [];
+        if (ws.mindRealm === undefined) ws.mindRealm = 0;
       }
       if (!Array.isArray(save.materialCounts)) save.materialCounts = {};
       return save;

@@ -17,6 +17,9 @@ import {
   INSTINCT_RANGE,
   GENE_MAX,
   MUTATION_STRENGTH,
+  MIND_REALMS,
+  MIND_REALM_THRESHOLDS,
+  MIND_ENERGY_MULT,
 } from '../constants';
 import { clamp, randomInt, shuffle } from '../utils/mathUtils';
 
@@ -149,11 +152,17 @@ export class SwordAgent {
         const x = pos.x + dx;
         const y = pos.y + dy;
         if (!this.world.inBounds(x, y) || this.world.isWall(x, y)) continue;
-        const found = type === 'food' ? this.world.foodAt(x, y) > 0 : this.world.swordIdAt(x, y) !== null;
-        if (found) {
-          const dist = Math.abs(dx) + Math.abs(dy);
-          if (!best || dist < best.dist) best = { dx, dy, dist };
+        if (type === 'food') {
+          if (this.world.foodAt(x, y) <= 0) continue;
+        } else {
+          const sid = this.world.swordIdAt(x, y);
+          if (!sid) continue;
+          const other = this.world.swords.get(sid);
+          // v1.12.0：血亲（同源一脉）不可为敌——本能/恐惧/策略/技能目标一律排除
+          if (!other || this.world.isKin(this, other)) continue;
         }
+        const dist = Math.abs(dx) + Math.abs(dy);
+        if (!best || dist < best.dist) best = { dx, dy, dist };
       }
     }
     return best;
@@ -175,11 +184,13 @@ export class SwordAgent {
     const hpRatio = input[25];
     const aggr = this.world.effectiveAggression(this.state.genome.aggression);
 
-    // 饥饿驱力：全盘扫描最近食物
+    // 饥饿驱力：全盘扫描最近食物 (v1.12.0：权重上调 + 近距强采食，减少「绕食不食」)
     const hunger = this.hungerLevel();
     if (food) {
       const closeness = clamp(1 - food.dist / (MAX_PERCEPTION_RANGE + 1), 0.35, 1);
-      bias[this.dirTo(food.dx, food.dy)] += hunger * 0.85 * closeness;
+      // 近在咫尺（≤3 格）时加「立即采食」强偏置，压过随机剑心偏好（满灵力也顺手采）
+      const nearBonus = food.dist <= 3 ? 0.35 * (1 - food.dist / 4) : 0;
+      bias[this.dirTo(food.dx, food.dy)] += hunger * 1.0 * closeness + nearBonus;
     }
 
     // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力)
@@ -269,15 +280,15 @@ export class SwordAgent {
     return p;
   }
 
-  /** 行动：移动/吃/战斗；目标被阻挡则尝试其他方向，避免卡墙 */
+  /** 行动：移动/吃/战斗；目标被阻挡则尝试其他方向，避免卡墙。返回是否实际移动。 */
   act(dir: number): void {
     const tryMove = (d: number): boolean => {
       const dd = MOVES[d];
       const x = this.state.position.x + DIRS[dd].dx;
       const y = this.state.position.y + DIRS[dd].dy;
       if (this.world.inBounds(x, y) && !this.world.isWall(x, y)) {
-        this.performMoveTo(x, y);
-        return true;
+        // v1.12.0：血亲占位视作阻挡（performMoveTo 返回 false），绕行而过
+        return this.performMoveTo(x, y);
       }
       return false;
     };
@@ -304,7 +315,7 @@ export class SwordAgent {
     this.behavior.waitCount++;
   }
 
-  private performMoveTo(x: number, y: number): void {
+  private performMoveTo(x: number, y: number): boolean {
     this.prevCell = { x: this.state.position.x, y: this.state.position.y };
     this.state.facing = { x: x - this.state.position.x, y: y - this.state.position.y };
     this.actedThisTick = true; // 移动/采气/碰撞皆耗精元
@@ -317,13 +328,15 @@ export class SwordAgent {
       eventBus.emit(EVT.EAT, { x, y, intensity: food });
       this.world.moveSword(this, x, y);
       this.visitCurrent();
-      return;
+      return true;
     }
 
     const otherId = this.world.swordIdAt(x, y);
     if (otherId) {
       const defender = this.world.swords.get(otherId);
       if (defender) {
+        // v1.12.0：血亲不相攻——同源一脉视作阻挡，绕行而过（不战斗、不寄灵）
+        if (this.world.isKin(this, defender)) return false;
         this.behavior.attackCount++;
         const result = resolveBattle(this, defender);
         eventBus.emit(EVT.BATTLE_HIT, {
@@ -357,16 +370,19 @@ export class SwordAgent {
           this.world.removeSword(defender.state.id);
           this.world.moveSword(this, x, y);
           this.visitCurrent();
+          return true;
         } else {
           this.behavior.waitCount++; // 反震退回原位
+          return false;
         }
       }
-      return;
+      return false;
     }
 
     this.world.moveSword(this, x, y);
     this.behavior.moveCount++;
     this.visitCurrent();
+    return true;
   }
 
   /** 每 tick 一步 */
@@ -374,6 +390,7 @@ export class SwordAgent {
     this.state.age++;
     this.actedThisTick = false;
     this.recheckAffixes();
+    this.checkMindRealm();
     if (this.skillCd > 0) this.skillCd--;
     tickBuffs(this.state);
     const dir = this.decide();
@@ -396,6 +413,7 @@ export class SwordAgent {
     let cost =
       BASE_ENERGY_CONSUMPTION * (1 + g.speed * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
     cost *= this.actedThisTick ? 1 : IDLE_MULT; // 静养耗精元大减
+    cost *= MIND_ENERGY_MULT[this.state.mindRealm ?? 0]; // 剑心愈明，维持愈省 (v1.12.0)
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
     if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
@@ -463,6 +481,32 @@ export class SwordAgent {
       element: this.state.genome.element,
     });
     this.world.removeSword(this.state.id);
+  }
+
+  /**
+   * 剑心境界：历经杀伐/击破而「开悟」，NN 扩容 + 增益 (v1.12.0)。
+   * 新权重置 0（升级瞬间行为不变），子代继承境界（脑克隆自带容量）。
+   */
+  private checkMindRealm(): void {
+    const realm = this.state.mindRealm ?? 0;
+    if (realm >= MIND_REALMS.length - 1) return;
+    const b = this.behavior;
+    const th = MIND_REALM_THRESHOLDS[realm];
+    const battles = b.attackCount + b.fightsSurvived;
+    if (battles < th.battles && b.killCount < th.kills) return;
+    const next = realm + 1;
+    this.state.mindRealm = next;
+    this.brain.expandHidden(MIND_REALMS[next].hidden);
+    // 同步序列化快照，防存档读到扩容前的旧长度
+    this.state.brainWeights = this.brain.getWeights();
+    this.state.brainBiases = this.brain.getBiases();
+    const name = MIND_REALMS[next].name;
+    eventBus.emit(EVT.LOG, {
+      text: `第${this.world.config.currentDay}日：一道剑意在杀伐游历中灵识大开，剑心晋入「${name}」！`,
+      focusId: this.state.id,
+      important: true,
+      rareToast: `✨ 剑心「${name}」！此剑灵识渐开，愈战愈明`,
+    });
   }
 
   /** 词条参悟：满足条件即固化，可遗传 */

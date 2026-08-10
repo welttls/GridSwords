@@ -33,6 +33,35 @@ export const NN_HIDDEN = 8;
 export const NN_OUTPUT = 4;
 export const NN_LAYERS = [NN_INPUT, NN_HIDDEN, NN_OUTPUT];
 
+// ===== 剑心境界 (v1.12.0) =====
+/** 剑心境界：名称 + 隐藏层节点数 (凡心 26-8-4 → 忘我 26-16-4) */
+export const MIND_REALMS = [
+  { name: '凡心', hidden: 8 },
+  { name: '通明', hidden: 10 },
+  { name: '洞玄', hidden: 12 },
+  { name: '忘我', hidden: 16 },
+] as const;
+
+/** 晋升条件：达到「历经 ≥ battles 或 击破 ≥ kills」即开悟下一境 (下标=当前境) */
+export const MIND_REALM_THRESHOLDS = [
+  { battles: 8, kills: 3 },
+  { battles: 20, kills: 6 },
+  { battles: 45, kills: 12 },
+] as const;
+
+/** 各境界精元消耗倍率 (剑心愈明，维持愈省；野外与大比共用) */
+export const MIND_ENERGY_MULT = [1, 0.95, 0.9, 0.85] as const;
+/** 各境界技能触发倍率 (洞玄/忘我更擅施法) */
+export const MIND_CAST_MULT = [1, 1, 1.25, 1.5] as const;
+/** 各境界宗门大比战力加成：锋锐/坚韧/速度/感知 各 +N (v1.12.0) */
+export const MIND_DUEL_BONUS = [0, 0.5, 1, 2] as const;
+
+/** 剑心境界 → NN 结构 (输入 26、输出 4 固定，仅隐藏层随境界变化) */
+export function mindSizes(realm: number): number[] {
+  const r = Math.min(MIND_REALMS.length - 1, Math.max(0, realm));
+  return [NN_INPUT, MIND_REALMS[r].hidden, NN_OUTPUT];
+}
+
 // ===== 时间与天数 (修仙计时：1日 = 12时辰) =====
 export const TICKS_PER_SECOND = 4;   // 1x 速度
 export const MAX_DAYS = 10;
@@ -73,3 +102,6 @@ export const BATTLE_LOSE_SCORE = 100;
 // ===== 存档 =====
 export const SAVE_KEY = 'swordforge-save-v1';
 export const SAVE_INTERVAL_MS = 5000;
+
+// ===== 剑尘 (遗蜕) =====
+export const MAX_SWORD_DUST = 9; // 剑尘可囤积上限 (v1.12.0：由布尔改为计数)

@@ -151,6 +151,16 @@ canvas {
   color: var(--gold-dim);
   font-size: 14px;
 }
+/* v1.12.0：主菜单剑尘计数展示 */
+.menu-dust {
+  color: var(--ink-dim);
+  font-size: 13px;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+.menu-dust.has {
+  color: var(--gold);
+}
 .menu-buttons {
   display: flex;
   flex-direction: column;
@@ -1655,6 +1665,12 @@ canvas {
   color: var(--ink-dim);
   line-height: 1.8;
 }
+.sd-mind-name {
+  color: var(--gold);
+  font-size: 15px;
+  letter-spacing: 4px;
+  margin-bottom: 2px;
+}
 .sd-mind-sub {
   color: rgba(217, 178, 106, 0.7);
   font-size: 12px;
@@ -1753,12 +1769,13 @@ canvas {
   position: relative;
   cursor: help;
 }
-.tip:hover::after {
-  content: attr(data-tip);
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%);
+/* v1.12.0：悬浮解释改为 body 级 fixed 提示层（见 tooltip.ts），
+   避免在滚动容器（灵鉴等）内被 overflow 裁剪（右侧「精元」列曾显示不全） */
+.ui-tooltip {
+  position: fixed;
+  z-index: 1000;
+  display: none;
+  max-width: 260px;
   background: #1e2736;
   border: 1px solid var(--gold);
   color: var(--ink);
@@ -1766,23 +1783,10 @@ canvas {
   line-height: 1.55;
   padding: 7px 11px;
   border-radius: 7px;
-  width: max-content;
-  max-width: 250px;
-  white-space: normal;
-  z-index: 60;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
   pointer-events: none;
   text-align: left;
-}
-.tip:hover::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 3px);
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--gold);
-  z-index: 60;
+  white-space: normal;
 }
 
 /* ============ 剑域构成分类条 (v1.10.0) ============ */
