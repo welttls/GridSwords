@@ -5,7 +5,7 @@ export type Element = 'metal' | 'wood' | 'water' | 'fire' | 'earth';
  * 剑谱 (基因)：数值型性状，可遗传、可突变。
  */
 export interface Genome {
-  /** 锋锐 [0.1, 10] —— 决定攻击力 */
+  /** 攻伐 [0.1, 10] —— 决定攻击力 */
   sharpness: number;
   /** 坚韧 [0.1, 10] —— 决定防御力 */
   toughness: number;

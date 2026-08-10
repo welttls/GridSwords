@@ -25,13 +25,15 @@ export interface SwordSkill {
   range?: number;
   /** AoE 半径 */
   radius?: number;
-  /** 伤害倍率 (基础 = 有效锋锐) */
+  /** 伤害倍率 (基础 = 有效攻伐) */
   dmgMult?: number;
   /** 回复百分比 */
   healPct?: number;
   buffAtk?: number;
   buffDef?: number;
   buffTicks?: number;
+  /** v2.0.0：直线贯穿——命中沿途所有目标而非仅首个 (剑心绝技) */
+  pierce?: boolean;
 }
 
 /** 五行天赋技能 (每行 2 技：主技 + 辅技，v1.7.1 扩充让炼剑阶段更丰富) */
@@ -131,7 +133,7 @@ export const AFFIX_SKILLS: Record<string, SwordSkill> = {
   },
   poison: {
     id: 'skill_poisonrain', name: '淬毒雨', kind: 'aoe', affix: 'poison',
-    desc: '剑气化雨，方圆之敌尽染奇毒。',
+    desc: '木行独门 · 剑气化雨，方圆之敌尽染奇毒。',
     energyCost: 24, cooldown: 320, castChance: 0.02, radius: 3, dmgMult: 0.9,
   },
   parasite: {
@@ -141,18 +143,76 @@ export const AFFIX_SKILLS: Record<string, SwordSkill> = {
   },
 };
 
+/** 剑心绝技 (v2.0.0)：晋升奖励，分三档——通明 3 选 1 / 洞玄 3 选 1 / 忘我固定大招 */
+export const MIND_SKILLS_COMMON_1: SwordSkill[] = [
+  {
+    id: 'skill_swordrain', name: '万剑归宗', kind: 'aoe',
+    desc: '万千剑影自天而降，剑域之内，寸草难存。',
+    energyCost: 26, cooldown: 340, castChance: 0.02, radius: 4, dmgMult: 2.0,
+  },
+  {
+    id: 'skill_breakall', name: '一剑破万法', kind: 'line', pierce: true,
+    desc: '剑出无我，万法皆破——一道剑气贯穿沿途诸敌。',
+    energyCost: 24, cooldown: 320, castChance: 0.02, range: 16, dmgMult: 1.8,
+  },
+  {
+    id: 'skill_heartlight', name: '剑心通明', kind: 'buff',
+    desc: '剑心澄澈，攻守兼济——攻势与剑体同盛。',
+    energyCost: 18, cooldown: 300, castChance: 0.05, buffAtk: 1.5, buffDef: 1.2, buffTicks: 220,
+  },
+];
+export const MIND_SKILLS_COMMON_2: SwordSkill[] = [
+  {
+    id: 'skill_fixworld', name: '剑定乾坤', kind: 'aoe',
+    desc: '剑气冲霄，方圆皆定——大范围之敌尽受重创。',
+    energyCost: 28, cooldown: 360, castChance: 0.02, radius: 5, dmgMult: 1.5,
+  },
+  {
+    id: 'skill_flying', name: '天外飞仙', kind: 'projectile',
+    desc: '飞仙一剑，白虹贯日——集力于一点的绝杀。',
+    energyCost: 24, cooldown: 340, castChance: 0.02, range: 14, dmgMult: 3.0,
+  },
+  {
+    id: 'skill_thunderstroke', name: '雷音剑势', kind: 'line', pierce: true,
+    desc: '剑引雷音，紫电贯穿——雷光一线，诸敌辟易。',
+    energyCost: 26, cooldown: 340, castChance: 0.02, range: 18, dmgMult: 2.2,
+  },
+];
+/** 剑心大招：忘我境固定获得 */
+export const MIND_SKILL_ULT: SwordSkill = {
+  id: 'skill_swordheaven', name: '万剑朝宗', kind: 'aoe',
+  desc: '万剑齐发，天地俯首——终极一剑，无人可当。',
+  energyCost: 30, cooldown: 400, castChance: 0.02, radius: 6, dmgMult: 2.6,
+};
+/** 剑心绝技 id → 技能 */
+export const MIND_SKILL_BY_ID: Record<string, SwordSkill> = Object.fromEntries(
+  [...MIND_SKILLS_COMMON_1, ...MIND_SKILLS_COMMON_2, MIND_SKILL_ULT].map((s) => [s.id, s]),
+);
+/** 各境界晋升候选池 (下标=当前境)：通明/洞玄 3 选 1；忘我走固定大招 */
+export const MIND_SKILL_POOLS: SwordSkill[][] = [
+  MIND_SKILLS_COMMON_1,
+  MIND_SKILLS_COMMON_2,
+  [],
+];
+
 /** 技能列表缓存 (词条集合小、命中率高；返回只读使用，勿外部修改) */
 const skillsCache = new Map<string, SwordSkill[]>();
 
-/** 某剑意可用的技能 (五行天赋主技+辅技 + 词条) */
-export function skillsFor(element: Element, affixes: string[]): SwordSkill[] {
-  const key = `${element}|${affixes.join(',')}`;
+/** 某剑意可用的技能 (五行天赋主技+辅技 + 词条 + 剑心绝技 v2.0.0) */
+export function skillsFor(element: Element, affixes: string[], mindSkillIds?: string[]): SwordSkill[] {
+  const key = `${element}|${affixes.join(',')}|${(mindSkillIds ?? []).join(',')}`;
   const cached = skillsCache.get(key);
   if (cached) return cached;
   const list: SwordSkill[] = [...ELEMENT_TALENTS[element]];
   for (const a of affixes) {
     const s = AFFIX_SKILLS[a];
     if (s) list.push(s);
+  }
+  if (mindSkillIds) {
+    for (const id of mindSkillIds) {
+      const s = MIND_SKILL_BY_ID[id];
+      if (s) list.push(s);
+    }
   }
   skillsCache.set(key, list);
   return list;
@@ -222,8 +282,8 @@ export function castSkill(
       const target = enemy ?? agent.nearestTarget('sword');
       const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
-      hitLine(agent, world, dx, dy, s.range ?? 12, dmgBase * (s.dmgMult ?? 1.8), 0);
-      eventBus.emit(EVT.SKILL, { kind: 'projectile', x, y, dx, dy, element: color, text: s.name });
+      hitLine(agent, world, dx, dy, s.range ?? 12, dmgBase * (s.dmgMult ?? 1.8), 0, !!s.pierce);
+      eventBus.emit(EVT.SKILL, { kind: 'projectile', x, y, dx, dy, element: color, text: s.name, id: s.id });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意施展「${s.name}」，剑气横贯剑域！`);
       break;
     }
@@ -238,13 +298,13 @@ export function castSkill(
         if (d <= r) {
           damageSword(agent, other, Math.round(dmgBase * (s.dmgMult ?? 1.5) * 0.8));
           if (s.affix === 'poison' && !(other.state.poisonTicks ?? 0 > 0)) {
-            other.state.poisonDmg = 1;
-            other.state.poisonTicks = 20;
+            other.state.poisonDmg = 2;
+            other.state.poisonTicks = 24;
           }
           hit++;
         }
       }
-      eventBus.emit(EVT.SKILL, { kind: 'aoe', x, y, radius: r, element: color, text: s.name });
+      eventBus.emit(EVT.SKILL, { kind: 'aoe', x, y, radius: r, element: color, text: s.name, id: s.id });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意引爆「${s.name}」，波及${hit}柄剑意！`);
       break;
     }
@@ -252,8 +312,8 @@ export function castSkill(
       const target = enemy ?? agent.nearestTarget('sword');
       const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
-      const total = hitLine(agent, world, dx, dy, s.range ?? 16, dmgBase * (s.dmgMult ?? 2), s.affix === 'parasite' ? 0.5 : 0);
-      eventBus.emit(EVT.SKILL, { kind: 'line', x, y, dx, dy, element: color, text: s.name });
+      const total = hitLine(agent, world, dx, dy, s.range ?? 16, dmgBase * (s.dmgMult ?? 2), s.affix === 'parasite' ? 0.5 : 0, !!s.pierce);
+      eventBus.emit(EVT.SKILL, { kind: 'line', x, y, dx, dy, element: color, text: s.name, id: s.id });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意使出「${s.name}」，天门洞开、直线贯穿！`);
       break;
     }
@@ -279,7 +339,7 @@ export function castSkill(
     case 'buff': {
       if (s.buffDef) { st.buffDefMult = s.buffDef; st.buffDefTicks = s.buffTicks; }
       if (s.buffAtk) { st.buffAtkMult = s.buffAtk; st.buffAtkTicks = s.buffTicks; }
-      eventBus.emit(EVT.SKILL, { kind: 'buff', x, y, element: color, text: s.name });
+      eventBus.emit(EVT.SKILL, { kind: 'buff', x, y, element: color, text: s.name, id: s.id });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意凝神施展「${s.name}」，气势陡增！`);
       break;
     }
@@ -288,8 +348,8 @@ export function castSkill(
   (agent as unknown as { skillCd: number }).skillCd = s.cooldown;
 }
 
-/** 直线命中 (沿方向到射程)，返回命中数 */
-function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range: number, dmg: number, lifesteal: number): number {
+/** 直线命中 (沿方向到射程，pierce 时贯穿全部目标)，返回命中数 */
+function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range: number, dmg: number, lifesteal: number, pierce = false): number {
   const st = agent.state;
   let hit = 0;
   let x = st.position.x + dx;
@@ -306,7 +366,7 @@ function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range:
           st.hp = Math.min(MAX_HP, st.hp + Math.round(dmg * lifesteal));
         }
         hit++;
-        break; // 只命中首个
+        if (!pierce) break; // 非贯穿：只命中首个
       }
     }
     x += dx;

@@ -28,6 +28,8 @@ export interface SkillVisual {
   radius?: number;
   /** 飘字文本 (技能名，渲染端上浮淡出；headless 无监听即忽略) */
   text?: string;
+  /** 技能 id (v2.0.0：渲染端据此播剑心绝技专属特效) */
+  id?: string;
 }
 
 /** 粒子事件负载 (网格坐标 + 五行) */

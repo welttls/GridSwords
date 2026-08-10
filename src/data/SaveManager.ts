@@ -29,8 +29,8 @@ export interface GameSave {
   bestScore: number;
   finishedGames: number;
   hasBeatenFirstOpponent: boolean;
-  /** 剑尘遗蜕数量 (v1.12.0：由布尔改为计数，炼成 +1、开局淬炼消耗 1，上限 MAX_SWORD_DUST) */
-  swordDust: number;
+  /** 万剑谱 (v2.0.0)：本命剑收藏，最多 5 柄可替换；旧剑可作大比对手 */
+  swordCodex: RankedSword[];
   // —— 当前局 (支持中断续玩) ——
   activeRun: boolean;
   embryoGenome: Genome | null;
@@ -69,7 +69,7 @@ export function defaultSave(): GameSave {
     bestScore: 0,
     finishedGames: 0,
     hasBeatenFirstOpponent: false,
-    swordDust: 0,
+    swordCodex: [],
     activeRun: false,
     embryoGenome: null,
     day: 1,
@@ -96,10 +96,8 @@ export class SaveManager {
       const parsed = JSON.parse(raw) as GameSave;
       if (!parsed || parsed.version !== 1) return defaultSave();
       const save = { ...defaultSave(), ...parsed };
-      // v1.12.0：剑尘由布尔改为计数——旧档 hasSwordDust===true 迁移为 1 枚
-      if ((parsed as { hasSwordDust?: boolean }).hasSwordDust === true) {
-        save.swordDust = Math.max(1, save.swordDust ?? 0);
-      }
+      // v2.0.0：万剑谱兜底（旧档无此字段）
+      if (!Array.isArray(save.swordCodex)) save.swordCodex = [];
       // P1-6：字段级迁移 —— 旧档 swords[].origin 缺失时按 rootId 补默认
       if (Array.isArray(save.swords)) {
         for (const s of save.swords) {

@@ -36,8 +36,10 @@ export interface FighterBar {
 export interface BattleUI {
   getOpponent: () => string | null;
   getArt: () => string | null;
-  /** 决斗结果 (ok=胜负, main=主文案, sub=副文案) —— 用 textContent 渲染，防注入 */
-  setResult: (ok: boolean, main: string, sub?: string) => void;
+  /** 决斗结果 (ok=胜负, main=主文案, sub=副文案, actions=按钮) —— 用 textContent 渲染，防注入 */
+  setResult: (ok: boolean, main: string, sub?: string, actions?: { label: string; onClick: () => void }[]) => void;
+  /** v2.0.0：连胜指示 */
+  setStreak: (n: number) => void;
   setRunning: (running: boolean) => void;
   selectOpponent: (id: string) => void;
   /** 展开决斗舞台 (左右双剑 + 场景) */
@@ -65,6 +67,10 @@ export function buildTournament(
   const screen = el('div', 'screen battle-screen');
   screen.appendChild(el('h2', 'menu-title small', '试 剑 台'));
 
+  // v2.0.0：连胜指示
+  const streakEl = el('div', 'duel-streak hidden', '');
+  screen.appendChild(streakEl);
+
   // 玩家本命剑
   const playerRow = el('div', 'player-row');
   const pCanvas = document.createElement('canvas');
@@ -74,7 +80,7 @@ export function buildTournament(
   playerRow.append(
     pCanvas,
     el('div', 'player-name', `${playerName} · ${ELEMENT_LABEL[playerGenome.element]}行本命剑`),
-    el('div', 'player-stats', `锋锐${playerGenome.sharpness.toFixed(1)}　坚韧${playerGenome.toughness.toFixed(1)}　速度${playerGenome.speed.toFixed(1)}　感知${playerGenome.perception.toFixed(1)}`),
+    el('div', 'player-stats', `攻伐${playerGenome.sharpness.toFixed(1)}　坚韧${playerGenome.toughness.toFixed(1)}　速度${playerGenome.speed.toFixed(1)}　感知${playerGenome.perception.toFixed(1)}`),
   );
   screen.appendChild(playerRow);
 
@@ -425,14 +431,28 @@ export function buildTournament(
   const ui: BattleUI = {
     getOpponent: () => selectedId,
     getArt: () => artSel.value,
-    setResult: (ok, main, sub) => {
+    setResult: (ok, main, sub, actions) => {
       clearNode(resultBox);
       resultBox.classList.remove('hidden');
       const box = el('div', ok ? 'result-ok' : 'result-fail');
       const mainEl = el('div', 'battle-winner', main);
       if (sub) mainEl.appendChild(el('div', 'battle-sub', sub));
       box.appendChild(mainEl);
+      // v2.0.0：结算动作按钮（失败「再战」等）
+      if (actions && actions.length > 0) {
+        const row = el('div', 'duel-result-actions');
+        for (const a of actions) {
+          const btn = el('button', 'btn btn-gold', a.label);
+          btn.addEventListener('click', a.onClick);
+          row.appendChild(btn);
+        }
+        box.appendChild(row);
+      }
       resultBox.appendChild(box);
+    },
+    setStreak: (n: number) => {
+      streakEl.textContent = n > 0 ? `⚔ 连胜 ${n} 场` : '';
+      streakEl.classList.toggle('hidden', n <= 0);
     },
     setRunning: (running: boolean) => {
       startBtn.disabled = running;

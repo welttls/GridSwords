@@ -5,13 +5,14 @@ import { resolveBattle } from './BattleResolver';
 import { mutateGenome, genomeChanged, ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
 import { eventBus, EVT } from '../utils/eventBus';
-import { skillsFor, tryCastSkill, tickBuffs } from './Skills';
+import { skillsFor, tryCastSkill, tickBuffs, MIND_SKILL_ULT, MIND_SKILL_POOLS, MIND_SKILL_BY_ID } from './Skills';
 import {
   MAX_HP,
   ENERGY_SPLIT_THRESHOLD,
   BASE_ENERGY_CONSUMPTION,
   IDLE_MULT,
   HP_REGEN_PER_TICK,
+  WATER_REGEN_MULT,
   DECISION_THRESHOLD,
   MAX_PERCEPTION_RANGE,
   INSTINCT_RANGE,
@@ -48,6 +49,10 @@ export class SwordAgent {
   private prevCell: { x: number; y: number } | null = null;
   /** 技能冷却剩余 tick */
   skillCd = 0;
+  /** v2.0.0：剑心晋升候选绝技 (本命血脉待 3 选 1；运行时字段，不序列化) */
+  pendingMindPick: string[] | null = null;
+  /** v2.0.0：残血追击锁定——攻击未击杀时锁定目标，持续追杀至击杀/逃离 (运行时字段) */
+  huntTargetId: string | null = null;
 
   /** 宗门大比剑诀修饰 */
   battleMods: {
@@ -193,8 +198,8 @@ export class SwordAgent {
       bias[this.dirTo(food.dx, food.dy)] += hunger * 1.0 * closeness + nearBonus;
     }
 
-    // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力)
-    if (enemy && aggr > 0.5 && enemy.dist <= 6 && hpRatio > 0.35) {
+    // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力；v2.0.0：门槛 0.5→0.4，中庸杀性也寻敌战斗)
+    if (enemy && aggr > 0.4 && enemy.dist <= 6 && hpRatio > 0.35) {
       const closeness = clamp(1 - enemy.dist / 7, 0.35, 1);
       bias[this.dirTo(enemy.dx, enemy.dy)] += aggr * 0.7 * closeness;
     }
@@ -226,6 +231,12 @@ export class SwordAgent {
 
   /** 决策：剑心输出 + 本能偏置 → 取最大方向；均低于阈值则游荡觅食 */
   decide(): number {
+    // v2.0.0：残血追击锁定——已接战目标未死则持续追杀
+    const hunt = this.huntDir();
+    if (hunt) {
+      this.lastMoveDir = this.dirTo(hunt.dx, hunt.dy);
+      return this.lastMoveDir;
+    }
     const input = this.perceive();
     // 全盘扫描一次，本能偏置与游荡复用同一份结果 (同 tick 内网格不变)
     const food = this.nearestTarget('food');
@@ -253,7 +264,27 @@ export class SwordAgent {
     return best;
   }
 
-  /** 有效锋锐 (受剑诀/词条/buff 影响) */
+  /** v2.0.0：追击锁定——目标存活/非血亲/在追击范围内则返回方向；杀性愈高追击愈执着（火系杀性最强、最爱追杀） */
+  private huntDir(): { dx: number; dy: number } | null {
+    if (!this.huntTargetId) return null;
+    const other = this.world.swords.get(this.huntTargetId);
+    // 杀性越高，放弃追击的血线越低、追击范围越大（温和系易罢手）
+    const aggr = this.world.effectiveAggression(this.state.genome.aggression);
+    const giveUpHp = 0.15 * (1 - aggr * 0.6); // 杀性 0.9→0.069 / 0.3→0.123
+    if (!other || other.state.id === this.state.id || this.world.isKin(this, other) || this.state.hp / MAX_HP < giveUpHp) {
+      this.huntTargetId = null; // 目标陨落/血亲/自身重伤，放弃追击
+      return null;
+    }
+    const dx = other.state.position.x - this.state.position.x;
+    const dy = other.state.position.y - this.state.position.y;
+    if (Math.abs(dx) + Math.abs(dy) > Math.max(6, Math.round(this.effectivePerception() * 2) + 2 + Math.round(aggr * 4))) {
+      this.huntTargetId = null; // 逃离视野，放弃追击
+      return null;
+    }
+    return { dx, dy };
+  }
+
+  /** 有效攻伐 (受剑诀/词条/buff 影响) */
   effectiveSharpness(): number {
     let s = this.state.genome.sharpness;
     if (this.state.genome.affixes.includes('kill5')) s += 1.5; // 斩念成性
@@ -323,7 +354,8 @@ export class SwordAgent {
     const food = this.world.foodAt(x, y);
     if (food > 0) {
       this.world.removeFood(x, y);
-      this.state.energy += food;
+      // v2.0.0：水系「生生不息」——采食回能 ×1.35（感知高觅食强、吃得多回能多，防饿死；水存活前列，与土/火争前二）
+      this.state.energy += food * (this.state.genome.element === 'water' ? 1.35 : 1);
       this.behavior.eatCount++;
       eventBus.emit(EVT.EAT, { x, y, intensity: food });
       this.world.moveSword(this, x, y);
@@ -346,12 +378,13 @@ export class SwordAgent {
           intensity: result.damage,
         });
         this.counterReady = false; // 反击只生效一次
-        // 淬毒：命中之敌剑体持续溃烂
+        // 淬毒：命中之敌剑体持续溃烂 (v2.0.0：毒伤 2/36tick，木系看家本领)
         if (this.state.genome.affixes.includes('poison')) {
-          defender.state.poisonDmg = 1;
-          defender.state.poisonTicks = 30;
+          defender.state.poisonDmg = 2;
+          defender.state.poisonTicks = 36;
         }
         if (result.defenderDied) {
+          this.huntTargetId = null; // 目标已死，解除追击
           this.behavior.killCount++;
           // 寄灵：击败者被寄灵化为己方剑子 (罕见能力)
           if (this.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
@@ -372,6 +405,8 @@ export class SwordAgent {
           this.visitCurrent();
           return true;
         } else {
+          // v2.0.0：残血追击——目标未死则锁定，趁胜追杀至击杀/逃离
+          if (this.state.hp / MAX_HP > 0.35) this.huntTargetId = defender.state.id;
           this.behavior.waitCount++; // 反震退回原位
           return false;
         }
@@ -395,6 +430,10 @@ export class SwordAgent {
     tickBuffs(this.state);
     const dir = this.decide();
     this.act(dir);
+    // v2.0.0：残血追击加速——锁定追击时身法如风，每 tick 多追一步，追上逃逸之敌
+    if (this.huntTargetId && this.huntDir()) {
+      this.act(this.decide());
+    }
     // 无根水·身法加成：每 tick 有几率额外行动一步 (移动更迅疾，采气/避敌更快)
     const speedBonus = this.world.modifiers.speedBonus;
     if (speedBonus > 0 && Math.random() < speedBonus * 0.2) {
@@ -403,7 +442,7 @@ export class SwordAgent {
     }
     // 剑意技能 (五行天赋 + 词条)：耗精元、有冷却
     if (this.skillCd <= 0 && this.state.energy > 5) {
-      tryCastSkill(this, this.world, skillsFor(this.state.genome.element, this.state.genome.affixes));
+      tryCastSkill(this, this.world, skillsFor(this.state.genome.element, this.state.genome.affixes, this.state.mindSkillIds));
     }
 
     const mods = this.world.modifiers;
@@ -414,6 +453,8 @@ export class SwordAgent {
       BASE_ENERGY_CONSUMPTION * (1 + g.speed * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
     cost *= this.actedThisTick ? 1 : IDLE_MULT; // 静养耗精元大减
     cost *= MIND_ENERGY_MULT[this.state.mindRealm ?? 0]; // 剑心愈明，维持愈省 (v1.12.0)
+    // v2.0.0：水系「轻灵」——维持耗神更省（感知高视野大移动多，省能防饿死；配合高回血成为存活第二）
+    if (this.state.genome.element === 'water') cost *= 0.85;
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
     if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
@@ -421,8 +462,9 @@ export class SwordAgent {
     if (this.battleMods.quick) cost *= 0.8;   // 快剑：举重若轻
     if (!this.battleMods.noCost) this.state.energy -= cost;
 
-    // 缓慢回气
-    this.state.hp = Math.min(MAX_HP, this.state.hp + HP_REGEN_PER_TICK);
+    // 缓慢回气 (v2.0.0：水系「生生不息」回血最高 ×1.6，成为存活第二)
+    const regen = HP_REGEN_PER_TICK * (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1);
+    this.state.hp = Math.min(MAX_HP, this.state.hp + regen);
     if (this.state.hp < this.behavior.minHp) this.behavior.minHp = this.state.hp;
 
     // 中毒 (淬毒)：剑体持续溃烂
@@ -484,7 +526,8 @@ export class SwordAgent {
   }
 
   /**
-   * 剑心境界：历经杀伐/击破而「开悟」，NN 扩容 + 增益 (v1.12.0)。
+   * 剑心境界：杀伐而「开悟」，NN 扩容 + 增益 (v1.12.0)。
+   * v2.0.0：只看击破（击杀数）达标即晋境，不再要求历经战斗数；晋升奖励剑心绝技——本命血脉 3 选 1（弹窗），外来剑意随机；忘我固定大招。
    * 新权重置 0（升级瞬间行为不变），子代继承境界（脑克隆自带容量）。
    */
   private checkMindRealm(): void {
@@ -492,8 +535,8 @@ export class SwordAgent {
     if (realm >= MIND_REALMS.length - 1) return;
     const b = this.behavior;
     const th = MIND_REALM_THRESHOLDS[realm];
-    const battles = b.attackCount + b.fightsSurvived;
-    if (battles < th.battles && b.killCount < th.kills) return;
+    // v2.0.0：只看击破（杀伐之证）
+    if (b.killCount < th.kills) return;
     const next = realm + 1;
     this.state.mindRealm = next;
     this.brain.expandHidden(MIND_REALMS[next].hidden);
@@ -501,12 +544,62 @@ export class SwordAgent {
     this.state.brainWeights = this.brain.getWeights();
     this.state.brainBiases = this.brain.getBiases();
     const name = MIND_REALMS[next].name;
-    eventBus.emit(EVT.LOG, {
-      text: `第${this.world.config.currentDay}日：一道剑意在杀伐游历中灵识大开，剑心晋入「${name}」！`,
-      focusId: this.state.id,
-      important: true,
-      rareToast: `✨ 剑心「${name}」！此剑灵识渐开，愈战愈明`,
-    });
+    // 剑心绝技：忘我固定大招；通明/洞玄 3 选 1（本命血脉弹窗选，外来随机）
+    const skills = (this.state.mindSkillIds ??= []);
+    if (next === MIND_REALMS.length - 1) {
+      if (!skills.includes(MIND_SKILL_ULT.id)) skills.push(MIND_SKILL_ULT.id);
+      eventBus.emit(EVT.LOG, {
+        text: `第${this.world.config.currentDay}日：一道剑意臻至「${name}」，顿悟终极剑意「${MIND_SKILL_ULT.name}」！`,
+        focusId: this.state.id,
+        important: true,
+        rareToast: `🌟 剑心「${name}」！悟得大招「${MIND_SKILL_ULT.name}」`,
+      });
+    } else {
+      const pool = MIND_SKILL_POOLS[realm];
+      const candidates = pool.filter((s) => !skills.includes(s.id));
+      if (candidates.length > 0) {
+        if (this.state.origin === 'seed') {
+          this.pendingMindPick = candidates.map((s) => s.id);
+          eventBus.emit(EVT.LOG, {
+            text: `第${this.world.config.currentDay}日：本命剑意剑心晋入「${name}」，只待择一绝技！`,
+            focusId: this.state.id,
+            important: true,
+          });
+        } else {
+          const s = candidates[randomInt(0, candidates.length - 1)];
+          skills.push(s.id);
+          eventBus.emit(EVT.LOG, {
+            text: `第${this.world.config.currentDay}日：一道剑意灵识大开，剑心晋入「${name}」，悟得绝技「${s.name}」！`,
+            focusId: this.state.id,
+            important: true,
+            rareToast: `✨ 剑心「${name}」！悟得「${s.name}」`,
+          });
+        }
+      } else {
+        eventBus.emit(EVT.LOG, {
+          text: `第${this.world.config.currentDay}日：一道剑意灵识大开，剑心晋入「${name}」！`,
+          focusId: this.state.id,
+          important: true,
+          rareToast: `✨ 剑心「${name}」！`,
+        });
+      }
+    }
+  }
+
+  /** v2.0.0：玩家在 3 选 1 弹窗中择定剑心绝技 */
+  pickMindSkill(id: string): void {
+    const s = MIND_SKILL_BY_ID[id];
+    const skills = (this.state.mindSkillIds ??= []);
+    if (s && !skills.includes(id)) skills.push(id);
+    this.pendingMindPick = null;
+    if (s) {
+      eventBus.emit(EVT.LOG, {
+        text: `第${this.world.config.currentDay}日：本命剑意剑心晋入「${MIND_REALMS[this.state.mindRealm ?? 0].name}」，悟得绝技「${s.name}」！`,
+        focusId: this.state.id,
+        important: true,
+        rareToast: `✨ 悟得剑心绝技「${s.name}」！`,
+      });
+    }
   }
 
   /** 词条参悟：满足条件即固化，可遗传 */
@@ -527,8 +620,8 @@ export class SwordAgent {
     if (b.killCount >= 3) add('kill5', false);
     if (b.attackCount + b.fightsSurvived >= 25) add('fight15', false); // v1.11.0：历经百炼（25 战）更稀有
     if (b.cellsVisited >= 350 && b.cellsVisited / Math.max(1, this.state.age) >= 0.35) add('roam400', false); // v1.11.0：足迹≥350 且游走不绝（密度≥0.35/tick），苟活久不动者不悟
-    // 淬毒：高锋锐+高杀性+久历杀伐(存续≥2500tick≈第3日 且 历经≥15战，防凶剑躺赢自动悟毒)
-    if (g.sharpness >= 7 && g.aggression >= 0.55 && this.state.age >= 2500 && b.attackCount + b.fightsSurvived >= 15) add('poison', true);
+    // v2.0.0：淬毒归木系独有——木行久历杀伐即悟（木攻伐低、杀性温和，不再要求攻伐/杀性；毒为木系看家本领，非木行不悟）
+    if (g.element === 'wood' && this.state.age >= 2500 && b.attackCount + b.fightsSurvived >= 15) add('poison', true);
     if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 4) add('parasite', true);
   }
 }

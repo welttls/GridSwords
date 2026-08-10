@@ -11,7 +11,7 @@ export interface BattleResult {
 
 /**
  * 战斗判定 (瞬间结算)。
- * 伤害 = max(1, 攻击方锋锐 - 防守方坚韧*0.5)
+ * 伤害 = max(1, 攻击方攻伐 - 防守方坚韧*0.5)
  * 闪避：两边比感知，守方感知高于攻方则有几率避开来剑 (感知差 → 闪避率)
  * 防守方死亡 → 进攻方获得其 50% 能量
  * 防守方存活 → 进攻方退回原位并损失少量生命 (反震)
@@ -31,9 +31,14 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
 
   const atk = attacker.effectiveSharpness();
   const def = defender.effectiveToughness();
-  let damage = Math.max(1, atk - def * 0.5);
+  // v2.0.0：伤害公式——保底「攻伐×0.35」+ 减伤系数 0.4：低攻伐(木/土/水 攻5)对常态坚韧 5-6 也能打 3 点、可积累击杀；高攻伐(火8)仍爆发
+  let damage = Math.max(1, Math.max(Math.ceil(atk * 0.35), atk - def * 0.4));
+  // v2.0.0：追击压制——锁定目标时伤害 +30%（破绽压制，乘胜追击）
+  if (attacker.huntTargetId === defender.state.id) damage = Math.max(1, Math.round(damage * 1.3));
   // 磐石护/百炼守 buff：受击减免
   if (defender.state.buffDefMult) damage = Math.max(1, Math.round(damage * (1 / (1 + defender.state.buffDefMult * 0.5))));
+  // v2.0.0：水系「柔克刚」——受击减免 15%（化力于无形，配合高回血成为存活第二）
+  if (defender.state.genome.element === 'water') damage = Math.max(1, Math.round(damage * 0.85));
 
   // 碰撞亦耗精元：出招耗神，受击损元
   attacker.state.energy -= 2;
@@ -49,9 +54,25 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
     return { damage, defenderDied: true, recoil: 0 };
   }
 
+  // v2.0.0：木系「毒木反噬」——淬毒木剑被攻击时，攻击者反中毒（木系温和不追杀，靠毒反噬磨敌，被动击杀路径）
+  if (defender.state.genome.element === 'wood' && defender.state.genome.affixes.includes('poison') && !(attacker.state.poisonTicks ?? 0 > 0)) {
+    attacker.state.poisonDmg = 2;
+    attacker.state.poisonTicks = 36;
+  }
+
   defender.counterReady = true; // 后手反击蓄势
-  const recoil = Math.max(0.5, damage * 0.3);
+  // v2.0.0：追击压制——锁定目标追击时反震减半（乘胜追击、压制敌势），让追击者能磨死目标而非先被反震磨死
+  const hunting = attacker.huntTargetId === defender.state.id;
+  // v2.0.0：土系「厚土反震」——厚土反弹来剑：反震按伤害 80% 且不受追击减半（近战克星）；反震磨死攻击者计入土系击破（被动击杀/晋升路径）
+  const isEarth = defender.state.genome.element === 'earth';
+  const recoil = isEarth
+    ? Math.max(0.5, damage * 0.8)
+    : Math.max(hunting ? 0.25 : 0.5, damage * 0.3 * (hunting ? 0.5 : 1));
   attacker.state.hp -= recoil;
+  // 土系反震致死：反震磨死攻击者 → 土系计击破（与剑心晋升联动）
+  if (isEarth && attacker.state.hp <= 0 && defender.state.hp > 0) {
+    defender.behavior.killCount++;
+  }
   attacker.state.energy -= damage * 0.2; // 出招亦耗神
   return { damage, defenderDied: false, recoil };
 }

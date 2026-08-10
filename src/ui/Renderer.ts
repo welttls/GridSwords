@@ -2,6 +2,7 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { World } from '../simulation/World';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { ELEMENT_COLOR } from '../simulation/Genetics';
+import { MIND_SWORD_SCALE } from '../constants';
 import { eventBus, EVT, type ParticleEvent, type SkillVisual } from '../utils/eventBus';
 
 const FOOD_COLOR = 0xffd76a;
@@ -196,6 +197,8 @@ export class WorldRenderer {
   private onSkill(e: SkillVisual): void {
     const c = this.elementColor(e.element);
     const label = e.text;
+    // v2.0.0：剑心绝技专属特效（更酷炫，优先于普通 kind 特效）
+    if (e.id && this.mindFx(e)) return;
     switch (e.kind) {
       case 'projectile': {
         const dx = e.dx ?? 1;
@@ -253,6 +256,77 @@ export class WorldRenderer {
         break;
       }
     }
+  }
+
+  /** v2.0.0：剑心绝技专属特效（比普通技能更酷炫） */
+  private mindFx(e: SkillVisual): boolean {
+    const c = this.elementColor(e.element);
+    const x = e.x;
+    const y = e.y;
+    switch (e.id) {
+      case 'skill_swordrain': { // 万剑归宗：金色剑雨 + 大扩散环
+        this.spawnBurst(x, y, 0xffd76a, 26, this.cell * 7, this.cell * 0.18, 0.8);
+        this.spawnBurst(x, y, c, 18, this.cell * 6, this.cell * 0.16, 0.6);
+        this.spawnBurst(x, y, 0xffffff, 8, this.cell * 8, this.cell * 0.12, 0.35);
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 0.9, maxLife: 0.9, radius: (e.radius ?? 4) + 1 });
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: c, life: 0.55, maxLife: 0.55, radius: 2.4 });
+        break;
+      }
+      case 'skill_breakall': { // 一剑破万法：贯穿光束 + 沿途爆点
+        const dx = e.dx ?? 1;
+        const dy = e.dy ?? 0;
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffd76a, life: 0.5, maxLife: 0.5, radius: 22 });
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffffff, life: 0.22, maxLife: 0.22, radius: 18 });
+        this.spawnBurst(x, y, c, 12, this.cell * 6, this.cell * 0.16, 0.5);
+        this.spawnImpact(x + dx * 18, y + dy * 18, 0xffd76a);
+        break;
+      }
+      case 'skill_heartlight': { // 剑心通明：蓝金双环 + 金身光晕
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 1.0, maxLife: 1.0, radius: 3 });
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0x5aa9ff, life: 0.6, maxLife: 0.6, radius: 1.8 });
+        this.spawnBurst(x, y, 0xffd76a, 16, this.cell * 6, this.cell * 0.15, 0.7);
+        this.spawnBurst(x, y, 0x5aa9ff, 10, this.cell * 5, this.cell * 0.12, 0.5);
+        break;
+      }
+      case 'skill_fixworld': { // 剑定乾坤：超大双环 + 全屏爆闪
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 1.1, maxLife: 1.1, radius: (e.radius ?? 5) + 1.5 });
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: c, life: 0.7, maxLife: 0.7, radius: 3.2 });
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffffff, life: 0.4, maxLife: 0.4, radius: 2 });
+        this.spawnBurst(x, y, 0xffd76a, 30, this.cell * 8, this.cell * 0.2, 0.9);
+        this.spawnBurst(x, y, c, 20, this.cell * 7, this.cell * 0.16, 0.65);
+        break;
+      }
+      case 'skill_flying': { // 天外飞仙：白金拖尾弹道 + 白色环爆
+        const dx = e.dx ?? 1;
+        const dy = e.dy ?? 0;
+        this.effects.push({ kind: 'proj', x, y, dx, dy, color: 0xfff2c8, life: 2.4, maxLife: 2.4, radius: 0 });
+        this.spawnBurst(x, y, 0xffffff, 10, this.cell * 6, this.cell * 0.14, 0.4);
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffffff, life: 0.5, maxLife: 0.5, radius: 2 });
+        break;
+      }
+      case 'skill_thunderstroke': { // 雷音剑势：紫电贯穿 + 电弧爆点
+        const dx = e.dx ?? 1;
+        const dy = e.dy ?? 0;
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xb06cff, life: 0.5, maxLife: 0.5, radius: 24 });
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffffff, life: 0.2, maxLife: 0.2, radius: 20 });
+        this.spawnBurst(x, y, 0xb06cff, 18, this.cell * 7, this.cell * 0.16, 0.5);
+        this.spawnImpact(x + dx * 20, y + dy * 20, 0xb06cff);
+        break;
+      }
+      case 'skill_swordheaven': { // 万剑朝宗：全屏万剑齐发 + 金光冲天
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 1.2, maxLife: 1.2, radius: (e.radius ?? 6) + 2 });
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffffff, life: 0.7, maxLife: 0.7, radius: 4 });
+        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: c, life: 0.45, maxLife: 0.45, radius: 2.6 });
+        this.spawnBurst(x, y, 0xffd76a, 40, this.cell * 9, this.cell * 0.22, 1.0);
+        this.spawnBurst(x, y, c, 26, this.cell * 8, this.cell * 0.18, 0.7);
+        this.spawnBurst(x, y, 0xffffff, 12, this.cell * 10, this.cell * 0.14, 0.4);
+        break;
+      }
+      default:
+        return false;
+    }
+    if (e.text) this.pushFloatText(x, y - 1, e.text, 0xffd76a);
+    return true;
   }
 
   /** 命中爆点：亮核 + 元素色小环 */
@@ -428,7 +502,9 @@ export class WorldRenderer {
     const color = ELEMENT_COLOR[s.state.genome.element];
     const fx = s.state.facing.x;
     const fy = s.state.facing.y;
-    const len = cell * 0.75;
+    // v2.0.0：剑身随剑心境界变大（凡心→忘我 ×1~×1.4），境界肉眼可辨
+    const realm = Math.min(MIND_SWORD_SCALE.length - 1, Math.max(0, s.state.mindRealm ?? 0));
+    const len = cell * 0.75 * MIND_SWORD_SCALE[realm];
 
     // 剑刃
     g.lineStyle(1.7, color, 0.95);
@@ -441,6 +517,18 @@ export class WorldRenderer {
     g.moveTo(cx + px * 2.4, cy + py * 2.4);
     g.lineTo(cx - px * 2.4, cy - py * 2.4);
     g.lineStyle(0);
+
+    // v2.0.0：剑心境界光晕——境界愈高，金光愈盛
+    if ((s.state.mindRealm ?? 0) > 0) {
+      const glow = 0.12 + (s.state.mindRealm ?? 0) * 0.06;
+      const wob = Math.sin(tick * 0.25 + s.state.position.x + s.state.position.y);
+      g.beginFill(0xffd76a, glow + 0.04 * wob);
+      g.drawCircle(cx, cy, cell * 0.8);
+      g.endFill();
+      g.lineStyle(1.2, 0xffd76a, 0.5 + 0.15 * wob);
+      g.drawCircle(cx, cy, cell * 0.8);
+      g.lineStyle(0);
+    }
 
     // 本命血脉标记 (金色剑穗)：玩家剑胚一脉
     if (s.state.origin === 'seed') {

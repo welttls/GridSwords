@@ -1368,6 +1368,98 @@ canvas {
 .opponent-panel {
   width: 340px;
 }
+/* v2.0.0：大比连胜指示 / 结算动作 / 剑心绝技 3 选 1 / 万剑谱替换 */
+.duel-streak {
+  text-align: center;
+  color: var(--gold);
+  font-size: 14px;
+  letter-spacing: 2px;
+  margin: 4px 0;
+}
+.duel-result-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}
+.mindpick-title {
+  color: var(--gold);
+  margin-bottom: 12px;
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.mindpick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.mindpick-card {
+  border: 1px solid #5a6b8c;
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #1a2233, #141a26);
+  transition: all 0.15s;
+}
+.mindpick-card:hover {
+  border-color: var(--gold);
+  transform: translateY(-2px);
+}
+.mindpick-name {
+  color: var(--gold);
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+.mindpick-desc {
+  color: #9fb3d1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.codex-hint {
+  color: #9fb3d1;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.codex-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.codex-slot {
+  border: 1px solid #5a6b8c;
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  text-align: center;
+  background: linear-gradient(180deg, #1a2233, #141a26);
+  transition: all 0.15s;
+}
+.codex-slot:hover {
+  border-color: var(--gold);
+}
+.codex-slot.empty {
+  border-style: dashed;
+  opacity: 0.7;
+}
+.codex-slot-name {
+  color: #e8eef7;
+  font-size: 13px;
+  font-weight: bold;
+}
+.codex-slot-meta {
+  color: #8ea2c0;
+  font-size: 11px;
+  margin-top: 4px;
+}
+@media (max-width: 900px) {
+  .mindpick-grid {
+    grid-template-columns: 1fr;
+  }
+  .codex-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 .opponent-list {
   display: flex;
   flex-direction: column;

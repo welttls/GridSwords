@@ -36,6 +36,8 @@ export interface SwordState {
   survivedThunder?: boolean;
   /** 剑心境界 (0=凡心 1=通明 2=洞玄 3=忘我；决定 NN 隐藏层容量与境界加成，v1.12.0) */
   mindRealm?: number;
+  /** 已悟剑心绝技 id (v2.0.0：晋升 3 选 1/大招获得，随血脉遗传) */
+  mindSkillIds?: string[];
   /** 行为统计 (续档恢复用，随剑意序列化) */
   behavior?: BehaviorStats;
 }

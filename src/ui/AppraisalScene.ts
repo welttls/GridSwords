@@ -28,7 +28,7 @@ export interface AppraisalData {
 
 /** 鉴定页属性/评分/特质的悬浮说明 */
 const APPRAISE_TIPS: Record<string, string> = {
-  锋锐: '攻伐之力：碰撞伤害 = 锋锐 − 敌方坚固×0.5（至少 1 点）；锋锐亦增暴击之威。锋刃越利，日常维持耗神越多。',
+  攻伐: '攻伐之力：碰撞伤害 = 攻伐 − 敌方坚固×0.5（至少 1 点）；攻伐亦增暴击之威。锋刃越利，日常维持耗神越多。',
   坚韧: '防御之体：直接削弱所受伤害，反震亦轻。剑体越沉，行动越耗精元。',
   速度: '身法：越快则移动耗精元越多，宗门大比中蓄势越快、出手越频。',
   感知: '灵识：探查范围 = 感知×2 格；与对手比感知，感知高者闪避来剑更易。',
@@ -37,7 +37,7 @@ const APPRAISE_TIPS: Record<string, string> = {
   存续: '自诞生起存活的时间占比，越久说明越能自续。',
   评分: '剑成评分 = 存续×10 + 血脉相承×20 + 剑谱总和×0.5 + 本性殊异(≤15)。越高越是好剑。',
   血脉相承: '剑谱与最初剑胚的相似程度 ×20。血脉越是承继正脉，愈显纯粹。',
-  剑谱总和: '五行属性（锋锐/坚韧/速度/感知）之和 ×0.5。剑体底子越厚越好。',
+  剑谱总和: '五行属性（攻伐/坚韧/速度/感知）之和 ×0.5。剑体底子越厚越好。',
   本性殊异: '十日内体现出的独特本性（特质）越多越高，上限 15：基础 5 + 特质数×5。',
   斩念成性: '十日内击破 ≥ 3 敌，杀伐果决之证。',
   吞金成性: '十日内采气 ≥ 20 团，吞吐如意之证。',
@@ -109,7 +109,7 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
 
   const stats = el('div', 'final-stats');
   stats.append(
-    statLine('锋锐', data.winner.state.genome.sharpness, APPRAISE_TIPS['锋锐']),
+    statLine('攻伐', data.winner.state.genome.sharpness, APPRAISE_TIPS['攻伐']),
     statLine('坚韧', data.winner.state.genome.toughness, APPRAISE_TIPS['坚韧']),
     statLine('速度', data.winner.state.genome.speed, APPRAISE_TIPS['速度']),
     statLine('感知', data.winner.state.genome.perception, APPRAISE_TIPS['感知']),
@@ -181,7 +181,7 @@ export function drawRadar(canvas: HTMLCanvasElement, genome: Genome): void {
   const R = 78;
   ctx.clearRect(0, 0, 220, 220);
   const keys: (keyof Genome)[] = ['sharpness', 'toughness', 'speed', 'perception'];
-  const labels = ['锋锐', '坚韧', '速度', '感知'];
+  const labels = ['攻伐', '坚韧', '速度', '感知'];
   const angles = keys.map((_, i) => -Math.PI / 2 + (i * Math.PI * 2) / keys.length);
 
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';

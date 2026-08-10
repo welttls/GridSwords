@@ -1,5 +1,5 @@
 import type { Element, Genome } from '../types';
-import { ELEMENT_TALENTS, AFFIX_SKILLS } from './Skills';
+import { ELEMENT_TALENTS, AFFIX_SKILLS, MIND_SKILL_BY_ID } from './Skills';
 import type { SwordSkill } from './Skills';
 import { ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
@@ -61,6 +61,8 @@ export interface DuelCombatantConfig {
   art?: string;
   /** 剑心境界 (v1.12.0)：越高战力加成越多、出招精元越省 */
   mindRealm?: number;
+  /** 剑心绝技 id (v2.0.0)：晋升悟得的强大招式，计入大比 */
+  mindSkillIds?: string[];
 }
 
 /** 决斗者内部状态 */
@@ -87,6 +89,8 @@ interface Fighter {
   guarded: boolean;
   /** 剑心境界 (v1.12.0) */
   mindRealm?: number;
+  /** 剑心绝技 id (v2.0.0) */
+  mindSkillIds?: string[];
   /** 后手反击：受击后下次攻击 +50% (counter 剑诀) */
   counterReady: boolean;
 }
@@ -121,7 +125,7 @@ function skillToTechnique(s: SwordSkill, maxHp: number): DuelTechnique {
 }
 
 /** 依据剑谱属性 + 词条自然生成招式 (含五行天赋剑技) */
-export function buildTechniques(genome: Genome, element: Element): DuelTechnique[] {
+export function buildTechniques(genome: Genome, element: Element, mindSkillIds?: string[]): DuelTechnique[] {
   const g = genome;
   const affixes = g.affixes ?? [];
   const maxHp = Math.round(70 + g.toughness * 8);
@@ -131,7 +135,7 @@ export function buildTechniques(genome: Genome, element: Element): DuelTechnique
 
   // —— 属性招式 (按属性门槛自然生成) ——
   const statTechs: DuelTechnique[] = [];
-  if (g.sharpness >= 5) statTechs.push({ id: 'break', name: '破军斩', desc: '以力破巧，势大力沉。', kind: 'heavy', dmgMult: 1.7, hits: 1, critBonus: 0.1, energyCost: 22, source: '锋锐' });
+  if (g.sharpness >= 5) statTechs.push({ id: 'break', name: '破军斩', desc: '以力破巧，势大力沉。', kind: 'heavy', dmgMult: 1.7, hits: 1, critBonus: 0.1, energyCost: 22, source: '攻伐' });
   if (g.speed >= 5) statTechs.push({ id: 'dash', name: '疾风刺', desc: '身随剑走，连刺数剑。', kind: 'quick', dmgMult: 0.7, hits: 2, critBonus: 0, energyCost: 18, source: '速度' });
   if (g.perception >= 5) statTechs.push({ id: 'insight', name: '洞幽斩', desc: '洞若观火，直击破绽。', kind: 'attack', dmgMult: 0.95, hits: 1, critBonus: 0.3, energyCost: 18, source: '感知' });
   if (g.toughness >= 5) statTechs.push({ id: 'guard', name: '磐石守', desc: '守御蓄势，伺机反扑。', kind: 'guard', dmgMult: 0.6, hits: 1, critBonus: 0, energyCost: 20, heal: 6, guard: true, source: '坚韧' });
@@ -147,8 +151,17 @@ export function buildTechniques(genome: Genome, element: Element): DuelTechnique
   // 通用基础招
   const base: DuelTechnique = { id: 'strike', name: '锋行', desc: '凝神一剑，直取中路。', kind: 'attack', dmgMult: 1.0, hits: 1, critBonus: 0, energyCost: 12, source: '本能' };
 
-  // 组成：基础 + 五行天赋(2) + 词条(优先) + 属性(补位)，最多 5 招 (选招面板动态生成)
-  const ordered = [base, ...elementTechs, ...affixTechs, ...statTechs];
+  // —— 剑心绝技 (v2.0.0：晋升悟得的强大招式，优先于词条) ——
+  const mindTechs: DuelTechnique[] = [];
+  if (mindSkillIds) {
+    for (const id of mindSkillIds) {
+      const s = MIND_SKILL_BY_ID[id];
+      if (s) mindTechs.push(skillToTechnique(s, maxHp));
+    }
+  }
+
+  // 组成：基础 + 五行天赋(2) + 剑心绝技 + 词条(优先) + 属性(补位)，最多 5 招 (选招面板动态生成)
+  const ordered = [base, ...elementTechs, ...mindTechs, ...affixTechs, ...statTechs];
   return ordered.slice(0, 5);
 }
 
@@ -165,6 +178,14 @@ const FX_BY_ID: Record<string, DuelFx> = {
   skill_hundred: 'shield',
   skill_blink: 'dash',
   skill_roam: 'dash',
+  // v2.0.0：剑心绝技
+  skill_swordrain: 'blast',
+  skill_breakall: 'beam',
+  skill_heartlight: 'dash',
+  skill_fixworld: 'blast',
+  skill_flying: 'slash',
+  skill_thunderstroke: 'beam',
+  skill_swordheaven: 'blast',
 };
 export function techFx(tech: DuelTechnique): DuelFx {
   if (tech.id in FX_BY_ID) return FX_BY_ID[tech.id];
@@ -201,7 +222,7 @@ export class Duel {
   private makeFighter(side: DuelSideId, c: DuelCombatantConfig): Fighter {
     const g = c.genome;
     const affixes = g.affixes ?? [];
-    // v1.12.0：剑心境界战力加成（锋锐/坚韧/速度/感知 各 +N），剑体上限随加成后坚韧
+    // v1.12.0：剑心境界战力加成（攻伐/坚韧/速度/感知 各 +N），剑体上限随加成后坚韧
     const realm = c.mindRealm ?? 0;
     const bonus = MIND_DUEL_BONUS[Math.min(MIND_DUEL_BONUS.length - 1, Math.max(0, realm))] ?? 0;
     const tough = g.toughness + (affixes.includes('fight15') ? 1.5 : 0) + bonus;
@@ -213,6 +234,7 @@ export class Duel {
       art: c.art,
       affixes,
       mindRealm: realm,
+      mindSkillIds: c.mindSkillIds,
       sharp: g.sharpness + (affixes.includes('kill5') ? 1.5 : 0) + bonus,
       tough,
       speed: g.speed + bonus,
@@ -245,6 +267,7 @@ export class Duel {
     return buildTechniques(
       { sharpness: g.sharp, toughness: g.tough, speed: g.speed, perception: g.perc, aggression: g.aggr, strategy: g.strat, element: g.element, affixes: g.affixes },
       g.element,
+      this.p.mindSkillIds,
     );
   }
 
@@ -335,6 +358,7 @@ export class Duel {
     const techs = buildTechniques(
       { sharpness: f.sharp, toughness: f.tough, speed: f.speed, perception: f.perc, aggression: f.aggr, strategy: f.strat, element: f.element, affixes: f.affixes },
       f.element,
+      f.mindSkillIds,
     );
     const usable = techs.filter((t) => t.energyCost <= f.energy || t.energyCost === 0);
     const list = usable.length ? usable : techs;
@@ -396,7 +420,7 @@ export class Duel {
           thunderHit = true;
           dmg = Math.round(dmg * 1.5);
         }
-        // 暴击：锋锐 + 杀性驱动 (凶悍之剑易出重创)
+        // 暴击：攻伐 + 杀性驱动 (凶悍之剑易出重创)
         const critChance = tech.critBonus + this.clamp(a.sharp * 0.02 + a.aggr * 0.15, 0, 0.4);
         if (Math.random() < critChance) {
           crit = true;

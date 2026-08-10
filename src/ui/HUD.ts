@@ -7,7 +7,7 @@ import { eventBus, EVT, type LogMessage } from '../utils/eventBus';
 import { toast } from './modals';
 
 const GENES = [
-  { key: 'sharpness', label: '锋锐', color: '#8ab4ff' },
+  { key: 'sharpness', label: '攻伐', color: '#8ab4ff' },
   { key: 'toughness', label: '坚韧', color: '#6fd08a' },
   { key: 'speed', label: '速度', color: '#ffc24a' },
   { key: 'perception', label: '感知', color: '#d48aff' },
@@ -221,7 +221,7 @@ export class HUD {
     for (const c of this.chartEls) {
       const buckets = new Array(10).fill(0);
       for (const s of all) {
-        const v = s.state.genome[c.label === '锋锐' ? 'sharpness' : c.label === '坚韧' ? 'toughness' : c.label === '速度' ? 'speed' : 'perception'];
+        const v = s.state.genome[c.label === '攻伐' ? 'sharpness' : c.label === '坚韧' ? 'toughness' : c.label === '速度' ? 'speed' : 'perception'];
         const idx = Math.min(9, Math.max(0, Math.floor(v / 10 * 9.999)));
         buckets[idx]++;
       }

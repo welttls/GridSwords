@@ -31,6 +31,8 @@ import {
   TOTAL_TICKS,
   SHRINK_INTERVAL_TICKS,
   NN_LAYERS,
+  MIND_REALMS,
+  TICKS_PER_SHICHEN,
   START_ENERGY,
   START_HP,
   BATTLE_TICK_LIMIT,
@@ -42,10 +44,10 @@ import {
   FOOD_DROP_BATCH,
   EMERGENCE_THRESHOLD,
   EMERGENCE_MIN_GEN,
-  MAX_SWORD_DUST,
   mindSizes,
 } from './constants';
 import { Duel } from './simulation/Duel';
+import { MIND_SKILL_BY_ID } from './simulation/Skills';
 
 type SceneName = 'menu' | 'embryo' | 'forge' | 'appraisal' | 'tournament';
 
@@ -87,6 +89,8 @@ export class Game {
   appraisedRanked: RankedSword | null = null;
   battlePlayerState: SwordState | null = null;
   battle: BattleRun | null = null;
+  /** v2.0.0：大比连胜场数（首胜入万剑谱；失败断连） */
+  battleStreak = 0;
   private appraisalData: AppraisalData | null = null;
 
   private saveTimer = 0;
@@ -175,11 +179,6 @@ export class Game {
     openCodex(this);
   }
 
-  /** 当前持有剑尘数量 (v1.12.0：炼成 +1、开局淬炼消耗 1，上限 MAX_SWORD_DUST) */
-  swordDust(): number {
-    return this.save.swordDust;
-  }
-
   // ================= 开局 =================
   /** P0-3：有进行中的局/鉴定/大比时，先确认是否放弃再开新局 */
   startNewRun(element: Element): void {
@@ -205,15 +204,6 @@ export class Game {
 
   private doStartNewRun(element: Element): void {
     this.embryoGenome = randomGenome(element);
-    // 剑尘遗蜕：开局自动淬入 (消耗 swordDust 计数)
-    if (this.save.swordDust > 0) {
-      const g = this.embryoGenome;
-      g.sharpness += 0.5;
-      g.toughness += 0.5;
-      g.speed += 0.5;
-      g.perception += 0.5;
-      this.save.swordDust--;
-    }
 
     const world = new World();
     const cx = Math.floor(world.config.width / 2);
@@ -447,8 +437,8 @@ export class Game {
         this.paused = true;
         this.refreshHudControls();
         openSwordDetail(this, agent, () => {
+          // v2.0.0：灵鉴即暂停——关闭后保持暂停，玩家点速度档恢复走时
           if (this.scene === 'forge') {
-            this.paused = false;
             this.refreshHudControls();
           }
         });
@@ -457,6 +447,36 @@ export class Game {
         toast('该剑意已陨落，无从聚焦。');
       }
     }
+  }
+
+  /** v2.0.0：剑心晋升 3 选 1（仅本命血脉弹窗；外来剑意随机，见 checkMindRealm） */
+  private promptMindPick(agent: SwordAgent): void {
+    const candidates = agent.pendingMindPick;
+    if (!candidates || candidates.length === 0) return;
+    this.paused = true;
+    this.refreshHudControls();
+    const realmName = MIND_REALMS[agent.state.mindRealm ?? 0]?.name ?? '';
+    const body = el('div', 'mindpick-modal');
+    body.appendChild(el('p', 'mindpick-title', `本命剑意剑心晋入「${realmName}」——择一剑心绝技：`));
+    const grid = el('div', 'mindpick-grid');
+    for (const id of candidates) {
+      const s = MIND_SKILL_BY_ID[id];
+      if (!s) continue;
+      const card = el('div', 'mindpick-card tip');
+      card.setAttribute('data-tip', `耗 ${s.energyCost} 精元 · 冷却 ${Math.max(1, Math.round(s.cooldown / TICKS_PER_SHICHEN))} 时辰`);
+      card.append(el('div', 'mindpick-name', s.name), el('div', 'mindpick-desc', s.desc));
+      card.addEventListener('click', () => {
+        overlay.remove();
+        agent.pickMindSkill(s.id);
+        this.saveGame();
+        // 选完绝技即继续走时（3 选 1 是晋升流程，非灵鉴式主动暂停）
+        this.paused = false;
+        this.refreshHudControls();
+      });
+      grid.appendChild(card);
+    }
+    body.appendChild(grid);
+    const overlay = openModal('剑心 · 绝技', body, { width: 540 });
   }
 
   /** 涌现时选定代表剑意 (世代最深 / 存续最久) */
@@ -804,6 +824,15 @@ export class Game {
           this.refreshHudControls();
           this.promptReseed();
         }
+        // v2.0.0：剑心晋升 3 选 1——本命血脉候选待选，弹选择面板（暂停等玩家）
+        if (!this.tribulationEnded && this.world) {
+          for (const a of this.world.swords.values()) {
+            if (a.pendingMindPick && a.pendingMindPick.length > 0) {
+              this.promptMindPick(a);
+              break;
+            }
+          }
+        }
         // 涌现惊喜：出现能自续的稳定血脉 (数量达标且世代够深)
         if (
           !this.emergenceCelebrated &&
@@ -1068,7 +1097,6 @@ export class Game {
       wins: 0,
     };
 
-    this.save.swordDust = Math.min(MAX_SWORD_DUST, this.save.swordDust + 1); // 炼成之剑，遗蜕为尘（失败不得，见 endTribulation）
     this.save.finishedGames++;
     this.save.activeRun = false;
     // v1.9.2：复用 RankingManager.submit (插入+排序+截断+排名+解锁计算)，消除内联重复
@@ -1086,6 +1114,7 @@ export class Game {
 
     this.appraisedRanked = ranked;
     this.battlePlayerState = playerState;
+    this.battleStreak = 0; // v2.0.0：新剑入试剑台，连胜清零
     this.showTournament();
 
     if (rank > 0 && rank <= 20) {
@@ -1109,6 +1138,18 @@ export class Game {
     }
     const opponents: OpponentInfo[] = [
       ...NPC_OPPONENTS.map((o) => ({ ...o, isNPC: true })),
+      // v2.0.0：万剑谱旧剑——与旧我论剑（跨局持久）
+      ...this.save.swordCodex
+        .filter((c) => c.id !== player.id)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          title: '旧我 · 万剑谱',
+          difficulty: 1.25,
+          genome: c.genome,
+          tags: [...c.tags, '旧我论剑'],
+          isNPC: false,
+        })),
       ...this.save.history
         .filter((h) => h.id !== player.id)
         .slice(0, 3)
@@ -1123,7 +1164,8 @@ export class Game {
         })),
     ];
     const arts = SWORD_ARTS.filter((a) => !a.requireMaterial || this.save.unlockedMaterialIds.includes(a.requireMaterial));
-    buildTournament(this.host, this, opponents, player.genome, player.name, arts);
+    const ui = buildTournament(this.host, this, opponents, player.genome, player.name, arts);
+    ui.setStreak(this.battleStreak);
   }
 
   startTournament(oppId: string, artId: string, ui: BattleUI): void {
@@ -1207,6 +1249,14 @@ export class Game {
       ? Math.round(BATTLE_WIN_SCORE * b.opp.difficulty + hpRatio * 300)
       : Math.round(BATTLE_LOSE_SCORE * b.opp.difficulty);
 
+    // v2.0.0：连胜——胜利 +1，失败断连；首胜本命剑入万剑谱
+    if (playerWin) {
+      this.battleStreak++;
+      if (this.battleStreak === 1 && this.appraisedRanked) this.addToCodex(this.appraisedRanked);
+    } else {
+      this.battleStreak = 0;
+    }
+
     if (this.appraisedRanked) {
       this.appraisedRanked.score += points;
       if (playerWin) this.appraisedRanked.wins++;
@@ -1228,15 +1278,72 @@ export class Game {
     }
     this.saveGame();
 
-    // P1-2：用 textContent 渲染 (setResult 内部)，避免用户命名的剑名注入 HTML
+    // v2.0.0：结算面板——胜负/分数/排名/连胜 + 失败「再战」重打当前对手
+    b.ui.setStreak(this.battleStreak);
+    const rankNote = rank > 0 && rank <= 20 ? ` · 万剑榜第 ${rank} 名` : ' · 未入万剑榜';
     b.ui.setResult(
       playerWin,
       playerWin ? '胜！' : '败。',
       playerWin
-        ? `击败 ${b.opp.name}（难度 ×${b.opp.difficulty}）· 获得 ${points} 分`
-        : `惜败于 ${b.opp.name} · 获得 ${points} 分`,
+        ? `击败 ${b.opp.name}（难度 ×${b.opp.difficulty}）· +${points} 分 · 连胜 ${this.battleStreak} 场${rankNote}`
+        : `惜败于 ${b.opp.name} · +${points} 分${rankNote}`,
+      playerWin
+        ? undefined
+        : [
+            {
+              label: '再战',
+              onClick: () => {
+                // 重打当前对手（可反复挑战，直至胜过）
+                b.ui.setRunning(true);
+                this.startTournament(b.opp.id, b.artId, b.ui);
+              },
+            },
+          ],
     );
     b.ui.setRunning(false);
+  }
+
+  /** v2.0.0：大比胜利后本命剑入万剑谱（≤5；满 5 弹 5 槽位替换交互） */
+  private addToCodex(ranked: RankedSword): void {
+    const codex = this.save.swordCodex;
+    if (codex.some((c) => c.id === ranked.id)) return; // 已在谱，去重
+    if (codex.length < 5) {
+      codex.push({ ...ranked });
+      this.saveGame();
+      toast(`本命剑「${ranked.name}」录入万剑谱（${codex.length}/5）！`);
+      return;
+    }
+    this.promptCodexReplace(ranked);
+  }
+
+  /** v2.0.0：万剑谱替换——弹 5 槽位：已有=点击替换，空位=点击新增；被替换的旧剑从谱中消失 */
+  private promptCodexReplace(ranked: RankedSword): void {
+    const codex = this.save.swordCodex;
+    const body = el('div', 'codex-modal');
+    body.appendChild(el('p', 'codex-hint', '万剑谱已满（5/5）。点击要替换的旧剑——被替换者将从谱中消失。'));
+    const grid = el('div', 'codex-grid');
+    const slotEls: HTMLElement[] = [];
+    for (let i = 0; i < 5; i++) {
+      const c = codex[i];
+      const slot = el('div', 'codex-slot' + (c ? '' : ' empty'));
+      slot.appendChild(c
+        ? el('div', 'codex-slot-name', `${c.name}`)
+        : el('div', 'codex-slot-name', `空位 ${i + 1}`));
+      if (c) slot.appendChild(el('div', 'codex-slot-meta', `${Math.round(c.score)} 分 · 第 ${c.dayReached} 日炼成`));
+      else slot.appendChild(el('div', 'codex-slot-meta', '点击放入新剑'));
+      slot.addEventListener('click', () => {
+        if (codex[i]) codex[i] = { ...ranked };
+        else codex.push({ ...ranked });
+        this.save.swordCodex = codex.slice(0, 5);
+        this.saveGame();
+        overlay.remove();
+        toast(`本命剑「${ranked.name}」录入万剑谱！`);
+      });
+      slotEls.push(slot);
+      grid.appendChild(slot);
+    }
+    body.appendChild(grid);
+    const overlay = openModal('万剑谱 · 替换', body, { width: 520 });
   }
 
   private findOpponent(id: string): OpponentInfo | null {
@@ -1244,6 +1351,9 @@ export class Game {
     if (npc) return { ...npc, isNPC: true };
     const hist = this.save.history.find((h) => h.id === id);
     if (hist) return { id: hist.id, name: hist.name, title: '名剑', difficulty: 1.2, genome: hist.genome, tags: hist.tags, isNPC: false };
+    // v2.0.0：万剑谱旧剑
+    const codex = this.save.swordCodex.find((c) => c.id === id);
+    if (codex) return { id: codex.id, name: codex.name, title: '旧我 · 万剑谱', difficulty: 1.25, genome: codex.genome, tags: [...codex.tags, '旧我论剑'], isNPC: false };
     return null;
   }
 
@@ -1275,7 +1385,7 @@ export class Game {
       bestScore: this.save.bestScore,
       finishedGames: this.save.finishedGames,
       hasBeatenFirstOpponent: this.save.hasBeatenFirstOpponent,
-      swordDust: this.save.swordDust,
+      swordCodex: this.save.swordCodex,
       activeRun: this.scene === 'forge' && !!this.world,
       embryoGenome: this.embryoGenome,
       day: this.world?.config.currentDay ?? 1,

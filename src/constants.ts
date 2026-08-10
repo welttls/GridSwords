@@ -18,6 +18,8 @@ export const BASE_ENERGY_CONSUMPTION = 0.0117; // 基础精元消耗 (随剑谱�
 /** 静养 (不动) 时精元消耗倍率：约 7-8 日而竭 */
 export const IDLE_MULT = 0.4;
 export const HP_REGEN_PER_TICK = 0.08;
+/** v2.0.0：水系回血倍率——「生生不息」回血最高，存活第二（土铁壁第一） */
+export const WATER_REGEN_MULT = 2.0;
 export const DECISION_THRESHOLD = 0.2;
 
 // ===== 基因 =====
@@ -42,19 +44,21 @@ export const MIND_REALMS = [
   { name: '忘我', hidden: 16 },
 ] as const;
 
-/** 晋升条件：达到「历经 ≥ battles 或 击破 ≥ kills」即开悟下一境 (下标=当前境) */
+/** 晋升条件：只看击破（击杀数）达标即开悟下一境 (v2.0.0：历经或击破 → 历经且击破 → 仅击破；击破门槛 1/3/6) */
 export const MIND_REALM_THRESHOLDS = [
-  { battles: 8, kills: 3 },
-  { battles: 20, kills: 6 },
-  { battles: 45, kills: 12 },
+  { battles: 8, kills: 1 },
+  { battles: 20, kills: 3 },
+  { battles: 45, kills: 6 },
 ] as const;
 
 /** 各境界精元消耗倍率 (剑心愈明，维持愈省；野外与大比共用) */
 export const MIND_ENERGY_MULT = [1, 0.95, 0.9, 0.85] as const;
 /** 各境界技能触发倍率 (洞玄/忘我更擅施法) */
 export const MIND_CAST_MULT = [1, 1, 1.25, 1.5] as const;
-/** 各境界宗门大比战力加成：锋锐/坚韧/速度/感知 各 +N (v1.12.0) */
+/** 各境界宗门大比战力加成：攻伐/坚韧/速度/感知 各 +N (v1.12.0) */
 export const MIND_DUEL_BONUS = [0, 0.5, 1, 2] as const;
+/** 各境界剑意体型缩放 (v2.0.0)：剑身随境界变大，肉眼可辨 */
+export const MIND_SWORD_SCALE = [1, 1.12, 1.25, 1.4] as const;
 
 /** 剑心境界 → NN 结构 (输入 26、输出 4 固定，仅隐藏层随境界变化) */
 export function mindSizes(realm: number): number[] {
@@ -103,5 +107,4 @@ export const BATTLE_LOSE_SCORE = 100;
 export const SAVE_KEY = 'swordforge-save-v1';
 export const SAVE_INTERVAL_MS = 5000;
 
-// ===== 剑尘 (遗蜕) =====
-export const MAX_SWORD_DUST = 9; // 剑尘可囤积上限 (v1.12.0：由布尔改为计数)
+// (v2.0.0：剑尘系统下架，重设计待办「剑尘商店」——见 AI_HANDOFF 九)

@@ -9,7 +9,7 @@ import { skillsFor } from '../simulation/Skills';
 import { TICKS_PER_DAY, TICKS_PER_SHICHEN, MIND_REALMS, MIND_REALM_THRESHOLDS } from '../constants';
 
 const TIPS: Record<string, string> = {
-  锋锐: '攻伐之力：碰撞伤害 = 锋锐 − 敌方坚固×0.5（至少 1 点）；锋锐亦增暴击之威。锋刃越利，日常维持耗神越多。',
+  攻伐: '攻伐之力：碰撞伤害 = 攻伐 − 敌方坚固×0.5（至少 1 点）；攻伐亦增暴击之威。锋刃越利，日常维持耗神越多。',
   坚固: '防御之体：直接削弱所受伤害，反震亦轻。剑体越沉，行动越耗精元。',
   速度: '身法：越快则移动耗精元越多，宗门大比中蓄势越快、出手越频。',
   感知: '灵识：探查范围 = 感知×2 格；与对手比感知，感知高者闪避来剑更易。',
@@ -23,7 +23,7 @@ const TIPS: Record<string, string> = {
   历经: '经历过的碰撞战斗场数。',
   击破: '击溃的敌方剑意数。',
   剑子: '由己身分化衍生的后代剑意数。',
-  剑心: '此剑的灵识中枢：每一瞬扫视八方，权衡庚金、敌剑与壁垒，再择向而行。历经杀伐游历，灵识渐开、愈战愈明——剑心随「历经/击破」晋境，扩容玄机并增益战力（精元更省、更擅施法）。',
+  剑心: '此剑的灵识中枢：每一瞬扫视八方，权衡庚金、敌剑与壁垒，再择向而行。历经杀伐游历，灵识渐开、愈战愈明——剑心随「击破」晋境（杀伐之证，击破愈多、灵识愈明），扩容玄机并增益战力（精元更省、更擅施法；晋境悟剑心绝技）。',
   本命血脉: '出自你亲手种下的剑胚一脉，血统延续至今，是剑成鉴定的正主。',
   外来剑意: '随剑潮涌入的游离之剑，非本命一脉，可为辅翼亦可为敌。',
 };
@@ -51,12 +51,12 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
   body.appendChild(el('h3', 'section-title', '剑谱'));
   const affixes = s.genome.affixes;
   const AFFIX_NOTE: Record<string, string> = {
-    锋锐: affixes.includes('kill5') ? '含「斩念成性」锋锐 +1.5' : '',
+    攻伐: affixes.includes('kill5') ? '含「斩念成性」攻伐 +1.5' : '',
     坚固: affixes.includes('fight15') ? '含「百炼之体」坚固 +1.5' : '',
     感知: affixes.includes('roam400') ? '含「游历万方」感知 +2' : '',
   };
   const genes: { label: string; value: number; base: number; max: number }[] = [
-    { label: '锋锐', value: s.genome.sharpness + (affixes.includes('kill5') ? 1.5 : 0), base: s.genome.sharpness, max: 10 },
+    { label: '攻伐', value: s.genome.sharpness + (affixes.includes('kill5') ? 1.5 : 0), base: s.genome.sharpness, max: 10 },
     { label: '坚固', value: s.genome.toughness + (affixes.includes('fight15') ? 1.5 : 0), base: s.genome.toughness, max: 10 },
     { label: '速度', value: s.genome.speed, base: s.genome.speed, max: 10 },
     { label: '感知', value: s.genome.perception + (affixes.includes('roam400') ? 2 : 0), base: s.genome.perception, max: 10 },
@@ -91,9 +91,13 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
   // 剑技 (五行天赋 + 词条，与野外/大比同源)
   body.appendChild(el('h3', 'section-title', '剑技'));
   const skillBox = el('div', 'sd-skills');
-  const skills = skillsFor(s.genome.element, affixes);
+  const skills = skillsFor(s.genome.element, affixes, s.mindSkillIds);
   for (const sk of skills) {
-    const src = sk.element ? `${ELEMENT_LABEL[sk.element]}行天赋` : `「${affixName(sk.affix ?? '')}」`;
+    const src = sk.element
+      ? `${ELEMENT_LABEL[sk.element]}行天赋`
+      : sk.affix
+        ? `「${affixName(sk.affix)}」`
+        : '剑心绝技';
     const cd = Math.max(1, Math.round(sk.cooldown / TICKS_PER_SHICHEN));
     const item = el('div', 'sd-skill-item tip');
     item.setAttribute('data-tip', `${src} · 耗精元 ${sk.energyCost} · 冷却 ${cd} 时辰`);
@@ -138,12 +142,12 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
   body.appendChild(el('h3', 'section-title', '剑心'));
   const realm = s.mindRealm ?? 0;
   const realmInfo = MIND_REALMS[Math.min(MIND_REALMS.length - 1, realm)];
-  const battles = b.attackCount + b.fightsSurvived;
   const isMax = realm >= MIND_REALMS.length - 1;
   const th = MIND_REALM_THRESHOLDS[realm];
+  // v2.0.0：晋升只看击破（击杀数）
   const progress = isMax
     ? '已臻化境，剑心通神'
-    : `晋境：历经 ${Math.min(battles, th.battles)}/${th.battles} 战 · 击破 ${Math.min(b.killCount, th.kills)}/${th.kills}`;
+    : `晋境：击破 ${Math.min(b.killCount, th.kills)}/${th.kills}${b.killCount >= th.kills ? ' ✓' : ''}（击破达标方可晋境）`;
   const mind = el('div', 'sd-mind tip');
   mind.setAttribute('data-tip', TIPS['剑心'] ?? '');
   mind.appendChild(el('p', 'sd-mind-name', `剑心 · ${realmInfo.name}`));

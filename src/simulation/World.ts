@@ -243,6 +243,7 @@ export class World {
       generation: parent.state.generation + 1,
       origin: parent.state.origin,
       mindRealm: parent.state.mindRealm ?? 0, // v1.12.0：剑子继承父代剑心境界（脑克隆自带容量）
+      mindSkillIds: parent.state.mindSkillIds ? [...parent.state.mindSkillIds] : undefined, // v2.0.0：剑心绝技随血脉遗传
     };
     const child = new SwordAgent(childState, brain, this);
     this.addSword(child, nx, ny);
@@ -358,6 +359,7 @@ export class World {
       generation: attacker.state.generation + 1,
       origin: attacker.state.origin,
       mindRealm: attacker.state.mindRealm ?? 0, // v1.12.0：剑子继承寄主剑心境界
+      mindSkillIds: attacker.state.mindSkillIds ? [...attacker.state.mindSkillIds] : undefined, // v2.0.0：绝技随寄主遗传
     };
     const child = new SwordAgent(st, brain, this);
     this.addSword(child, x, y);

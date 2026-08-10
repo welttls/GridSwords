@@ -17,7 +17,7 @@ export const AFFIXES: AffixDef[] = [
   {
     id: 'kill5',
     name: '斩念成性',
-    desc: '击破 ≥ 3 敌。此后锋锐 +1.5，杀伐果决。',
+    desc: '击破 ≥ 3 敌。此后攻伐 +1.5，杀伐果决。',
   },
   {
     id: 'fight15',
@@ -32,7 +32,7 @@ export const AFFIXES: AffixDef[] = [
   {
     id: 'poison',
     name: '淬毒',
-    desc: '锋锐 ≥ 7 且杀性高、久历杀伐（存续 ≥ 3 日且历经 ≥ 15 战）。攻击附毒，令敌剑体持续溃烂。',
+    desc: '木行专属 · 久历杀伐（存续 ≥ 3 日且历经 ≥ 15 战）。攻击附毒，令敌剑体持续溃烂。',
     rare: true,
   },
   {
