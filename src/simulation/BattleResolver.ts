@@ -25,7 +25,7 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
     defender.state.energy -= 1;
     defender.behavior.fightsSurvived++;
     defender.counterReady = true;
-    attacker.state.hp = Math.max(1, attacker.state.hp - 0.5);
+    attacker.state.hp -= 0.5; // 扑空反震，不 clamp 回 1（残血不再“回血”）
     return { damage: 0, defenderDied: false, recoil: 0.5 };
   }
 

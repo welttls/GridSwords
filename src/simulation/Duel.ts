@@ -446,7 +446,9 @@ export class Duel {
     if (tech.guard) a.guarded = true;
 
     ev.push({ text, kind, actor: a.side, dmg: total, techName, fx });
-    this.checkDeath(d, ev); // 终结事件须在攻击文本之后，避免 MUD 顺序颠倒
+    // 终结事件须在攻击文本之后，避免 MUD 顺序颠倒；先判守方，再判攻方 (怒意斩等自伤也可能致命)
+    if (this.checkDeath(d, ev)) return ev;
+    this.checkDeath(a, ev);
     return ev;
   }
 }

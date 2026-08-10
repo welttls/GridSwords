@@ -2,7 +2,7 @@
 
 > **给 AI 的快速上手文档**：每次新开对话时，先读本文件 + `README.md` + `CHANGELOG.md`(最新版本段)，即可快速进入工作状态。
 > 项目根还有 `/memories/repo/swordforge.md`(深层踩坑笔记，可参考)。
-
+>
 > **⚠️ 你的维护职责**：本手册由 AI 共同维护——**每完成一项功能/修复/平衡调整后，必须同步更新本文档**中受影响的部分，并在「十一、文档维护日志」顶部追加一条(详见「八.5」)。让这份文档永远是最新的事实来源。
 
 ---
@@ -14,7 +14,7 @@
 ## 二、技术栈与命令(重要)
 
 | 项 | 值 |
-|---|---|
+| --- | --- |
 | 语言 | TypeScript(严格模式) |
 | 构建 | **Vite 4**(^4.5.3)——**本机 Node 是 v16.20.0,不能升 Vite 5** |
 | 渲染 | PixiJS 7 |
@@ -34,7 +34,7 @@ npm run preview      # 预览生产构建
 ## 三、必须看的文件(按重要性)
 
 | 文件 | 为什么看 |
-|---|---|
+| --- | --- |
 | `src/Game.ts` | **唯一编排者**：场景状态机(menu/embryo/forge/appraisal/tournament)、主循环、天劫、鉴定、大比、存档、解锁。多数跨模块逻辑都在这里 |
 | `src/constants.ts` | 全部平衡参数(数值调整先看这里) |
 | `src/simulation/World.ts` | 世界容器：网格/食物/火墙/剑意/分化/剑潮/天劫收缩/主循环 `tick()` |
@@ -46,7 +46,7 @@ npm run preview      # 预览生产构建
 
 ## 四、架构核心(30 秒版)
 
-```
+```text
 src/
 ├── main.ts / Game.ts / constants.ts   # 入口 / 唯一编排者 / 全部平衡参数
 ├── types/    # Genome / Sword / Environment / Material
@@ -57,6 +57,7 @@ src/
 ```
 
 **关键约定**：
+
 - `src/simulation/` 完全 headless——**禁止直接 import DOM/toast**，一律走 `eventBus`(如 `rareToast` 字段)。
 - 事件总线 `eventBus.ts`：`LOG/DAY_START/POP_CHANGE/TRIBULATION_END/BATTLE_HIT/SPLIT/DEATH/EAT/THUNDER/SKILL` 等；`emit` 已 try-catch 不中断主循环。
 - 时间：1 日 = 12 时辰 = 960 tick；1x 速度 = 4 tick/秒(一天约 4 分钟)。主循环基于 `tickAccumulator` 节流。
@@ -82,7 +83,7 @@ src/
 ## 六、炉材一览(RecipeDB)
 
 | 材料 | 效果 | 次数 |
-|---|---|---|
+| --- | --- | --- |
 | 千年寒铁 | 庚金生成 +40% | 4 |
 | 扶桑火种 | 生成临时火墙 | 3 |
 | 无根水 | **全体身法 +0.5(每 tick 有几率额外行动一步，移动更迅疾)** | 3 |
@@ -133,14 +134,15 @@ src/
 - **部署路径**：JS 里引用 public 资源必须 `import.meta.env.BASE_URL + '...'` 拼接(BattleScene 大比背景、swordIcon 剑图)，别写死 `/img/...` 根绝对路径(子路径托管 404)；`src/vite-env.d.ts` 提供 `import.meta.env` 类型。
 - **资源体积**：`bg_1.jpg`(168KB) 由原 `bg_1.png`(4.2MB) 压缩而来——大图先压再入库。
 - **性能/移动端**：Pixi `resolution` 已钳制 `min(dpr, 2)`(手机 3x 背缓冲 1920² 每帧全量重绘开销大)；画布 `touch-action:none`；移动端用 `100dvh` + `env(safe-area-inset-bottom)`。
+- **World 增量集合(v1.8.1)**：`World` 维护 `foodCells`/`wallCells` 两个 `Set<number>`(键=`y*width+x`)，渲染端只遍历集合而非全网格——**新增/移除食物或墙的逻辑必须同步维护这两个集合**(`spawnFood`/`removeFood`/`spawnCorpseFood`/`spawnMegaFood`/`spawnFireWalls`/`shrink`/`wallExpiry`/`restoreEcoState` 等处)。
 - **存档时机**：除 5s 自动 + 事件触发外，`pagehide`/`visibilitychange(hidden)` 会再存一次(iOS `beforeunload` 不可靠)，防关页丢进度。
 
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
 
+- 2026-08-10 v1.8.1：修复击杀后攻方不占格/鉴定标签门槛与词条不一致/闪避反震回血/大比自伤不判负；性能优化(渲染增量集合 foodCells/wallCells、消除重复全盘扫描、洗牌复用、技能缓存)；Markdown lint 清理 + 新增 .markdownlint.json。
 - 2026-08-10 v1.8.0：技能系统扩充(五行每行 2 技 + 大比招式上限 5) + 词条门槛放宽(eat30/kill5/fight15/roam400/淬毒/寄灵) + 修复鉴定命名 UI(标签/边框/点击反馈) + finishAppraisal 空名兜底 + 觅食本能 0.7→0.85 与惯性减半(修剑意兜圈/无视食物) + 鉴定页属性/评分/特质说明浮窗。
 - 2026-08-10 v1.7.0：外测发布准备——DPR 钳制 2x + 画布 touch-action、移动端 100dvh/safe-area、pagehide 关闭前自动存档、BattleScene/swordIcon 改 BASE_URL 路径、bg_1.png(4.2MB)→bg_1.jpg(168KB)、favicon、新增 vite-env.d.ts；部署接 Vercel。
 - 2026-08-10 v1.6.2：处理暂缓设计决策——剑尘改为「炼成才得、失败不得」并移除 `sword_dust` 炉材；清理 `randomSwordName`/`BehaviorTag` 死代码；`computeRankUnlocks(0)` 防御、`moveSword` 占用校验、`shrink` 清墙内食物、尸食设硬上限；删除已完成的 `bugfix.md`。
 - 2026-08-10 v1.6.1：新增「八.5 自我维护约定」与本章节；记录无根水身法生效、淬毒门槛调整、僵尸剑意/剑诀/存档类修复、AI_HANDOFF.md 建立。
-

@@ -164,22 +164,24 @@ export class SwordAgent {
     return dy > 0 ? 1 : 0;
   }
 
-  /** 本能偏置：基因驱动的先天行为 (饥饿追食 / 好战逐敌 / 伤重避战) */
-  private instinctBias(input: number[]): number[] {
+  /** 本能偏置：基因驱动的先天行为 (饥饿追食 / 好战逐敌 / 伤重避战)；food/enemy 由 decide 预扫描复用 */
+  private instinctBias(
+    input: number[],
+    food: { dx: number; dy: number; dist: number } | null,
+    enemy: { dx: number; dy: number; dist: number } | null,
+  ): number[] {
     const bias = [0, 0, 0, 0];
     const hpRatio = input[25];
     const aggr = this.world.effectiveAggression(this.state.genome.aggression);
 
     // 饥饿驱力：全盘扫描最近食物
     const hunger = this.hungerLevel();
-    const food = this.nearestTarget('food');
     if (food) {
       const closeness = clamp(1 - food.dist / (MAX_PERCEPTION_RANGE + 1), 0.35, 1);
       bias[this.dirTo(food.dx, food.dy)] += hunger * 0.85 * closeness;
     }
 
     // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力)
-    const enemy = this.nearestTarget('sword');
     if (enemy && aggr > 0.5 && enemy.dist <= 6 && hpRatio > 0.35) {
       const closeness = clamp(1 - enemy.dist / 7, 0.35, 1);
       bias[this.dirTo(enemy.dx, enemy.dy)] += aggr * 0.7 * closeness;
@@ -204,9 +206,8 @@ export class SwordAgent {
     return bias;
   }
 
-  /** 无明确意图时的游荡：优先朝最近食物 (全盘扫描)，否则随机 */
-  private wanderChoice(_input: number[]): number {
-    const food = this.nearestTarget('food');
+  /** 无明确意图时的游荡：优先朝最近食物 (复用 decide 已扫描的最近目标)，否则随机 */
+  private wanderChoice(food: { dx: number; dy: number; dist: number } | null): number {
     if (food) return this.dirTo(food.dx, food.dy);
     return randomInt(0, 3);
   }
@@ -214,8 +215,11 @@ export class SwordAgent {
   /** 决策：剑心输出 + 本能偏置 → 取最大方向；均低于阈值则游荡觅食 */
   decide(): number {
     const input = this.perceive();
+    // 全盘扫描一次，本能偏置与游荡复用同一份结果 (同 tick 内网格不变)
+    const food = this.nearestTarget('food');
+    const enemy = this.nearestTarget('sword');
     let out = this.brain.forward(input);
-    const bias = this.instinctBias(input);
+    const bias = this.instinctBias(input, food, enemy);
     out = out.map((v, i) => v + bias[i]);
     // 惯性：延续上次方向、折返略罚，打破感知/本能对冲造成的两格来回
     // v1.8.1：系数减半(0.06→0.03 / 0.12→0.06)，防随机剑心偏好滚雪球导致直线穿行/无视食物
@@ -232,7 +236,7 @@ export class SwordAgent {
         best = i;
       }
     }
-    if (best < 0) best = this.wanderChoice(input);
+    if (best < 0) best = this.wanderChoice(food);
     this.lastMoveDir = best;
     return best;
   }
@@ -347,10 +351,11 @@ export class SwordAgent {
             const corpseValue = Math.max(4, defender.state.energy * 0.4);
             this.world.spawnCorpseFood(x, y, corpseValue);
           }
+          // 击杀后立即移除防御者，防止其残留为「僵尸剑意」再行动一轮；
+          // 先清格再推进，攻方方能占据目标格 (占用校验会拦截旧顺序)
+          this.world.removeSword(defender.state.id);
           this.world.moveSword(this, x, y);
           this.visitCurrent();
-          // 击杀后立即移除防御者，防止其残留为「僵尸剑意」再行动一轮
-          this.world.removeSword(defender.state.id);
         } else {
           this.behavior.waitCount++; // 反震退回原位
         }

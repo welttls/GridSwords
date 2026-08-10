@@ -141,13 +141,20 @@ export const AFFIX_SKILLS: Record<string, SwordSkill> = {
   },
 };
 
+/** 技能列表缓存 (词条集合小、命中率高；返回只读使用，勿外部修改) */
+const skillsCache = new Map<string, SwordSkill[]>();
+
 /** 某剑意可用的技能 (五行天赋主技+辅技 + 词条) */
 export function skillsFor(element: Element, affixes: string[]): SwordSkill[] {
+  const key = `${element}|${affixes.join(',')}`;
+  const cached = skillsCache.get(key);
+  if (cached) return cached;
   const list: SwordSkill[] = [...ELEMENT_TALENTS[element]];
   for (const a of affixes) {
     const s = AFFIX_SKILLS[a];
     if (s) list.push(s);
   }
+  skillsCache.set(key, list);
   return list;
 }
 
@@ -189,14 +196,19 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
         break;
     }
     if (!want) continue;
-    castSkill(agent, world, s);
+    castSkill(agent, world, s, enemy);
     return true;
   }
   return false;
 }
 
-/** 技能结算 */
-export function castSkill(agent: SwordAgent, world: World, s: SwordSkill): void {
+/** 技能结算 (enemy 为 tryCastSkill 预扫描结果，可复用避免重复全盘扫描) */
+export function castSkill(
+  agent: SwordAgent,
+  world: World,
+  s: SwordSkill,
+  enemy?: { dx: number; dy: number; dist: number } | null,
+): void {
   const st = agent.state;
   st.energy -= s.energyCost;
   const { x, y } = st.position;
@@ -205,7 +217,7 @@ export function castSkill(agent: SwordAgent, world: World, s: SwordSkill): void 
 
   switch (s.kind) {
     case 'projectile': {
-      const target = agent.nearestTarget('sword');
+      const target = enemy ?? agent.nearestTarget('sword');
       const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
       hitLine(agent, world, dx, dy, s.range ?? 12, dmgBase * (s.dmgMult ?? 1.8), 0);
@@ -233,7 +245,7 @@ export function castSkill(agent: SwordAgent, world: World, s: SwordSkill): void 
       break;
     }
     case 'line': {
-      const target = agent.nearestTarget('sword');
+      const target = enemy ?? agent.nearestTarget('sword');
       const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
       const total = hitLine(agent, world, dx, dy, s.range ?? 16, dmgBase * (s.dmgMult ?? 2), s.affix === 'parasite' ? 0.5 : 0);

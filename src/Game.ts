@@ -813,9 +813,9 @@ export class Game {
     const b = s.behavior;
     const tags: string[] = [];
     if (b.killCount >= 3) tags.push('斩念成性');
-    if (b.eatCount >= 25) tags.push('吞金成性');
+    if (b.eatCount >= 20) tags.push('吞金成性'); // 与 eat30 词条门槛一致
     if (b.minHp > 60) tags.push('百炼之体');
-    if (b.cellsVisited >= 200) tags.push('游历万方');
+    if (b.cellsVisited >= 250) tags.push('游历万方'); // 与 roam400 词条门槛一致
     if (b.waitCount >= 200 && s.state.age > 2000) tags.push('静若渊渟');
     if (this.world?.modifiers.thunderstorm) tags.push('雷劫余生');
     return tags.slice(0, 3);

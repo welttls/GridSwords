@@ -284,37 +284,35 @@ export class WorldRenderer {
     if (b.maxY < h - 1) g.drawRect(b.minX * cell, (b.maxY + 1) * cell, (b.maxX - b.minX + 1) * cell, (h - b.maxY - 1) * cell);
     g.endFill();
 
-    // 火墙与残余混沌 (边界内的障碍)
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        if (world.isWall(x, y)) {
-          const inside = x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
-          if (inside) {
-            const pulse = 0.5 + 0.35 * Math.sin(tick * 0.12 + x * 1.7 + y * 1.3);
-            g.beginFill(WALL_COLOR, pulse);
-            g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
-            g.endFill();
-          }
-        }
+    // 火墙与残余混沌 (边界内的障碍) —— 增量遍历墙集合
+    for (const k of world.wallCells) {
+      const x = k % w;
+      const y = (k / w) | 0;
+      const inside = x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+      if (inside) {
+        const pulse = 0.5 + 0.35 * Math.sin(tick * 0.12 + x * 1.7 + y * 1.3);
+        g.beginFill(WALL_COLOR, pulse);
+        g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+        g.endFill();
       }
     }
 
-    // 庚金之气 (金色光点)
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const value = world.foodAt(x, y);
-        if (value > 0) {
-          const cx = (x + 0.5) * cell;
-          const cy = (y + 0.5) * cell;
-          const big = value > 15; // 陨星铁母更大更亮
-          const pulse = 0.55 + 0.35 * Math.sin(tick * 0.2 + x + y);
-          g.beginFill(FOOD_COLOR, pulse);
-          g.drawCircle(cx, cy, big ? cell * 0.42 : cell * 0.3);
-          g.endFill();
-          g.beginFill(0xfff6d8, 0.8);
-          g.drawCircle(cx, cy, big ? cell * 0.14 : cell * 0.09);
-          g.endFill();
-        }
+    // 庚金之气 (金色光点) —— 增量遍历食物集合
+    for (const k of world.foodCells) {
+      const x = k % w;
+      const y = (k / w) | 0;
+      const value = world.foodAt(x, y);
+      if (value > 0) {
+        const cx = (x + 0.5) * cell;
+        const cy = (y + 0.5) * cell;
+        const big = value > 15; // 陨星铁母更大更亮
+        const pulse = 0.55 + 0.35 * Math.sin(tick * 0.2 + x + y);
+        g.beginFill(FOOD_COLOR, pulse);
+        g.drawCircle(cx, cy, big ? cell * 0.42 : cell * 0.3);
+        g.endFill();
+        g.beginFill(0xfff6d8, 0.8);
+        g.drawCircle(cx, cy, big ? cell * 0.14 : cell * 0.09);
+        g.endFill();
       }
     }
 

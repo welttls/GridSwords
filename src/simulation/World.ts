@@ -50,6 +50,12 @@ export class World {
   private walls: boolean[][];
   private wallExpiry: { idx: number; expireTick: number }[] = [];
   private foodCount = 0;
+  /** 剑意行动随机顺序 (复用数组，避免每 tick 新建) */
+  private tickOrder: string[] = [];
+  /** 有庚金的格子键集合 (键 = y*width+x，渲染增量遍历用) */
+  private foodSet = new Set<number>();
+  /** 火墙/障碍格键集合 (渲染增量遍历用) */
+  private wallSet = new Set<number>();
 
   constructor(config: Partial<WorldConfig> = {}) {
     this.config = {
@@ -99,6 +105,20 @@ export class World {
   foodAt(x: number, y: number): number {
     if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return 0;
     return this.food[y][x];
+  }
+
+  /** 有庚金的格子键集合 (渲染遍历用，键 = y*width+x) */
+  get foodCells(): Set<number> {
+    return this.foodSet;
+  }
+
+  /** 火墙/障碍格键集合 (渲染遍历用，键 = y*width+x) */
+  get wallCells(): Set<number> {
+    return this.wallSet;
+  }
+
+  private cellKey(x: number, y: number): number {
+    return y * this.config.width + x;
   }
 
   swordIdAt(x: number, y: number): string | null {
@@ -248,6 +268,7 @@ export class World {
       if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.food[y][x] = FOOD_ENERGY;
         this.foodCount++;
+        this.foodSet.add(this.cellKey(x, y));
         return true;
       }
     }
@@ -273,6 +294,7 @@ export class World {
     const [x, y] = shuffle(cells)[0];
     this.food[y][x] = value;
     this.foodCount++;
+    this.foodSet.add(this.cellKey(x, y));
   }
 
   /** 寄灵：击败者被寄灵化入己方血脉，成为剑子 */
@@ -344,6 +366,7 @@ export class World {
       if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.food[y][x] = FOOD_ENERGY;
         this.foodCount++;
+        this.foodSet.add(this.cellKey(x, y));
         return;
       }
     }
@@ -358,17 +381,18 @@ export class World {
         if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
           this.food[y][x] = FOOD_ENERGY;
           this.foodCount++;
+          this.foodSet.add(this.cellKey(x, y));
           break;
         }
       }
     }
   }
 
-  /** 在中心附近生成食物 (开局补给，确保剑胚快速安家) */
   removeFood(x: number, y: number): void {
     if (this.food[y][x] > 0) {
       this.food[y][x] = 0;
       this.foodCount--;
+      this.foodSet.delete(this.cellKey(x, y));
     }
   }
 
@@ -380,6 +404,7 @@ export class World {
       const y = Math.floor(Math.random() * this.config.height);
       if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.walls[y][x] = true;
+        this.wallSet.add(this.cellKey(x, y));
         this.wallExpiry.push({ idx: y * this.config.width + x, expireTick: this.tickCounter + 600 });
         placed++;
       }
@@ -396,6 +421,7 @@ export class World {
       if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.food[y][x] = MEGA_FOOD_ENERGY;
         this.foodCount++;
+        this.foodSet.add(this.cellKey(x, y));
         placed++;
       }
     }
@@ -409,10 +435,12 @@ export class World {
     const markWall = (x: number, y: number) => {
       if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return;
       this.walls[y][x] = true;
+      this.wallSet.add(this.cellKey(x, y));
       // 被吞噬区域的食物随之湮灭 (不占食物配额，也不再被采气)
       if (this.food[y][x] > 0) {
         this.food[y][x] = 0;
         this.foodCount--;
+        this.foodSet.delete(this.cellKey(x, y));
       }
       const sid = this.grid[y][x];
       if (sid) killList.push(sid);
@@ -460,16 +488,14 @@ export class World {
     isShrinking: boolean;
   } {
     const food: [number, number, number][] = [];
-    for (let y = 0; y < this.config.height; y++) {
-      for (let x = 0; x < this.config.width; x++) {
-        if (this.food[y][x] > 0) food.push([x, y, this.food[y][x]]);
-      }
+    for (const k of this.foodSet) {
+      const x = k % this.config.width;
+      const y = Math.floor(k / this.config.width);
+      food.push([x, y, this.food[y][x]]);
     }
     const walls: [number, number][] = [];
-    for (let y = 0; y < this.config.height; y++) {
-      for (let x = 0; x < this.config.width; x++) {
-        if (this.walls[y][x]) walls.push([x, y]);
-      }
+    for (const k of this.wallSet) {
+      walls.push([k % this.config.width, Math.floor(k / this.config.width)]);
     }
     return {
       bounds: { ...this.bounds },
@@ -486,6 +512,8 @@ export class World {
     this.config.spawnFood = eco.spawnFood;
     this.config.isShrinking = eco.isShrinking;
     this.foodCount = 0;
+    this.foodSet.clear();
+    this.wallSet.clear();
     for (let y = 0; y < this.config.height; y++) {
       this.food[y].fill(0);
       this.walls[y].fill(false);
@@ -493,8 +521,12 @@ export class World {
     for (const [x, y, v] of eco.food) {
       this.food[y][x] = v;
       this.foodCount++;
+      this.foodSet.add(this.cellKey(x, y));
     }
-    for (const [x, y] of eco.walls) this.walls[y][x] = true;
+    for (const [x, y] of eco.walls) {
+      this.walls[y][x] = true;
+      this.wallSet.add(this.cellKey(x, y));
+    }
   }
 
   // ===== 主循环 =====
@@ -502,9 +534,14 @@ export class World {
     // 庚金之气再生
     if (this.config.spawnFood) this.spawnFood();
 
-    // 剑意行动 (随机顺序，避免位置偏置)
-    const ids = shuffle([...this.swords.keys()]);
-    for (const id of ids) {
+    // 剑意行动 (随机顺序，避免位置偏置；就地洗牌复用数组)
+    this.tickOrder.length = 0;
+    for (const id of this.swords.keys()) this.tickOrder.push(id);
+    for (let i = this.tickOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.tickOrder[i], this.tickOrder[j]] = [this.tickOrder[j], this.tickOrder[i]];
+    }
+    for (const id of this.tickOrder) {
       const s = this.swords.get(id);
       if (s) s.tick();
     }
@@ -516,6 +553,7 @@ export class World {
         const x = w.idx % this.config.width;
         const y = Math.floor(w.idx / this.config.width);
         this.walls[y][x] = false;
+        this.wallSet.delete(w.idx); // idx 即 cellKey
         return false;
       });
     }
