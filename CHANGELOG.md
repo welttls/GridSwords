@@ -34,7 +34,7 @@
 - 死代码：`spawnFoodAt`/`spawnFoodAround`、`minimized` 死类、`npcHp` 死变量
 - `swordIcon` 按 canvas 代际防异步重绘竞态；`techTitle` 定时器清理
 - 炉材面板缺键口径统一、剑潮投放全失败时给日志、场景切换销毁渲染器
-- 新增 `AI_HANDOFF.md`（AI 接力工作手册）
+- 新增 `AI_HANDOFF.md`（AI 接力工作手册，含**自我维护约定**：AI 每完成功能/修复后须同步更新该文档及「文档维护日志」）
 
 ---
 
