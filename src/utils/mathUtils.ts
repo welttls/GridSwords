@@ -54,10 +54,3 @@ export function nowDateStr(): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-
-/** 随机中文剑名 */
-export function randomSwordName(): string {
-  const prefixes = ['青霜', '赤霄', '寒渊', '紫电', '流云', '破军', '惊鸿', '太阿', '承影', '湛卢', '鱼肠', '干将'];
-  const suffixes = ['剑', '刃', '锋', '诀', '气', '芒', '影', '魄'];
-  return `${pickRandom(prefixes)}${pickRandom(suffixes)}`;
-}

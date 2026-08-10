@@ -5,6 +5,25 @@
 
 ---
 
+## v1.6.2 (2026-08-10)
+
+### ⚖️ 设计决策定案
+- **剑尘发放规则**：仅「炼成」（天劫后有幸存者）得 `hasSwordDust`（开局自动淬入剑胚 +0.5 四维），**失败不得**——剑意尽灭无遗蜕，不再是每局永久福利
+- **移除 `sword_dust` 炉材**：剑尘双轨合一（`hasSwordDust` 布尔轨），消除幽灵次数与空操作分支；`MaterialUnlock.firstCompletion` 类型保留备未来用
+
+### 🛡️ 防御性改进
+- **`computeRankUnlocks(0)` 防误解锁**：未上榜 (rank=0) 不再触发 `rank<=10` 误判
+- **`World.moveSword` 目标格占用校验**：不覆盖其他剑意
+- **天劫 `shrink()` 清理墙内食物**：被吞噬区域食物湮灭，`foodCount` 同步
+- **尸身化食硬上限**：`foodCount` 不超 `foodMax+20`
+
+### 🧹 清理
+- 删除 `randomSwordName`、`BehaviorTag` 枚举等死代码
+- 删除已完成的 `bugfix.md` 审查清单（全部实质 bug 已修复，剩余循环依赖为有意技术债）
+- `AI_HANDOFF.md` 同步：移除 bugfix 引用、剑尘规则、待办更新、维护日志
+
+---
+
 ## v1.6.1 (2026-08-10)
 
 ### 🐛 修复（代码审查专项，含 P0 严重问题）

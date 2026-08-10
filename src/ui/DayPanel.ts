@@ -22,7 +22,6 @@ export function openFurnacePanel(game: Game, onClose?: () => void): void {
   const body = el('div', 'material-list');
 
   for (const m of recipesSorted()) {
-    if (m.effect.type === 'swordDust') continue; // 开局专用
     // P1-13：缺键回退 0 而非 m.count，与实际消耗口径 (materialCounts[id] ?? 0) 保持一致
     const remaining = unlocked.has(m.id) ? counts[m.id] ?? 0 : 0;
     const card = el('div', 'material-card' + (remaining <= 0 ? ' locked' : ''));

@@ -176,6 +176,7 @@ export class Game {
 
   private doStartNewRun(element: Element): void {
     this.embryoGenome = randomGenome(element);
+    // 剑尘遗蜕：开局自动淬入 (消耗 hasSwordDust，不与此局炉府 sword_dust 次数叠加)
     if (this.save.hasSwordDust) {
       const g = this.embryoGenome;
       g.sharpness += 0.5;
@@ -223,10 +224,9 @@ export class Game {
     this.selectedSwordId = null;
     this.emergenceTargetId = null;
 
-    // 炉材次数初始化 (已解锁材料按可用次数；剑尘走 hasSwordDust 布尔轨，不产生幽灵次数)
+    // 炉材次数初始化 (已解锁材料按可用次数)
     this.save.materialCounts = {};
     for (const m of RECIPES) {
-      if (m.id === 'sword_dust') continue; // P1-9：剑尘由 hasSwordDust 管理，避免双轨冗余
       if (this.save.unlockedMaterialIds.includes(m.id)) {
         this.save.materialCounts[m.id] = m.count;
       }
@@ -615,8 +615,6 @@ export class Game {
         w.spawnMegaFood(m.effect.count);
         w.modifiers.aggressionBonus += 0.3;
         break;
-      case 'swordDust':
-        break;
     }
     eventBus.emit(EVT.LOG, `炉府中加入「${m.name}」，剑域气象随之而变。`);
     this.refreshHudControls();
@@ -748,12 +746,11 @@ export class Game {
     eventBus.emit(EVT.TRIBULATION_END, null);
     const data = this.computeAppraisal();
     if (!data) {
-      // 炼剑失败 → 剑尘
-      this.save.hasSwordDust = true;
+      // 炼剑失败：剑意尽灭，无遗蜕可拾 → 不得剑尘 (仅炼成才得)
       this.save.finishedGames++;
       this.save.activeRun = false;
       this.saveGame();
-      toast('天劫之下剑意尽灭，只余一捧「剑尘」。');
+      toast('天劫之下剑意尽灭，十日内一无所获。');
       this.showMenu();
       return;
     }
@@ -867,7 +864,7 @@ export class Game {
       wins: 0,
     };
 
-    this.save.hasSwordDust = true;
+    this.save.hasSwordDust = true; // 炼成之剑，遗蜕为尘（失败不得，见 endTribulation）
     this.save.finishedGames++;
     this.save.activeRun = false;
     this.save.history.push(ranked);
@@ -1046,6 +1043,7 @@ export class Game {
   // ================= 解锁 =================
   /** 排名解锁需榜单有一定规模，保持成长曲线 (3 柄名剑以上) */
   private computeRankUnlocks(rank: number): MaterialUnlock[] {
+    if (rank <= 0) return []; // P3：rank=0 (未上榜) 时不解锁，避免 evaluateUnlocks 误判 0<=10
     if (this.save.history.length < 3) return [];
     return RankingManager.evaluateUnlocks(rank, this.save.unlockedMaterialIds);
   }

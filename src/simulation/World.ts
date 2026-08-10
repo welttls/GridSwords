@@ -145,6 +145,9 @@ export class World {
   }
 
   moveSword(agent: SwordAgent, x: number, y: number): void {
+    // 防御：目标格被其他剑意占据时不覆盖 (正常路径调用方已保证空位)
+    const occupied = this.grid[y][x];
+    if (occupied && occupied !== agent.state.id) return;
     const { x: ox, y: oy } = agent.state.position;
     if (this.grid[oy][ox] === agent.state.id) this.grid[oy][ox] = null;
     this.grid[y][x] = agent.state.id;
@@ -265,6 +268,8 @@ export class World {
       }
     }
     if (cells.length === 0) return;
+    // 尸身化食不硬超食物上限 (临时溢出可接受，但设硬顶防失控)
+    if (this.foodCount >= this.config.foodMax + 20) return;
     const [x, y] = shuffle(cells)[0];
     this.food[y][x] = value;
     this.foodCount++;
@@ -404,6 +409,11 @@ export class World {
     const markWall = (x: number, y: number) => {
       if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return;
       this.walls[y][x] = true;
+      // 被吞噬区域的食物随之湮灭 (不占食物配额，也不再被采气)
+      if (this.food[y][x] > 0) {
+        this.food[y][x] = 0;
+        this.foodCount--;
+      }
       const sid = this.grid[y][x];
       if (sid) killList.push(sid);
     };

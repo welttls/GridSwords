@@ -36,15 +36,6 @@ export interface SwordState {
   behavior?: BehaviorStats;
 }
 
-/** 行为标签 (用于剑成鉴定与评分) */
-export type BehaviorTag =
-  | '掠食者'    // 猎杀众多
-  | '噬金者'    // 大量吞噬庚金之气
-  | '苦行者'    // 生命从未低过
-  | '开拓者'    // 足迹遍布剑域
-  | '潜伏者'    // 极少移动却活到最后
-  | '雷劫生还者'; // 在天雷中存活
-
 /** 行为统计 (运行时，不序列化) */
 export interface BehaviorStats {
   eatCount: number;

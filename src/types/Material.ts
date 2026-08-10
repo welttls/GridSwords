@@ -15,8 +15,7 @@ export type MaterialEffect =
   | { type: 'temperature'; value: 'cold' | 'breeze' }
   | { type: 'mutationBias'; stat: 'speed' | 'toughness'; rateMult: number; sideEffect?: 'speedDown' }
   | { type: 'thunderstorm' }
-  | { type: 'megaFood'; count: number }
-  | { type: 'swordDust' };
+  | { type: 'megaFood'; count: number };
 
 /** 投入物 (材料)：以道具次数使用，改变整个炼剑炉的属性 */
 export interface Material {

@@ -37,14 +37,6 @@ export const RECIPES: Material[] = [
     count: 3,
   },
   {
-    id: 'sword_dust',
-    name: '剑尘',
-    unlock: 'firstCompletion',
-    description: '前次炼剑的遗蜕。可在开局淬入剑胚，微量提升初始剑谱。',
-    effect: { type: 'swordDust' },
-    count: 1,
-  },
-  {
     id: 'fast_sword',
     name: '《快剑总纲》残篇',
     unlock: 'beatFirstOpponent',
