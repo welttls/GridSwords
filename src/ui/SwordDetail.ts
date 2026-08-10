@@ -5,6 +5,7 @@ import { openModal } from './modals';
 import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, strategyLabel } from '../simulation/Genetics';
 import { affixDesc, affixName } from '../data/AffixDB';
+import { skillsFor } from '../simulation/Skills';
 import { TICKS_PER_DAY, TICKS_PER_SHICHEN } from '../constants';
 
 const TIPS: Record<string, string> = {
@@ -86,6 +87,24 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
     }
     body.appendChild(affixBox);
   }
+
+  // 剑技 (五行天赋 + 词条，与野外/大比同源)
+  body.appendChild(el('h3', 'section-title', '剑技'));
+  const skillBox = el('div', 'sd-skills');
+  const skills = skillsFor(s.genome.element, affixes);
+  for (const sk of skills) {
+    const src = sk.element ? `${ELEMENT_LABEL[sk.element]}行天赋` : `「${affixName(sk.affix ?? '')}」`;
+    const cd = Math.max(1, Math.round(sk.cooldown / TICKS_PER_SHICHEN));
+    const item = el('div', 'sd-skill-item tip');
+    item.setAttribute('data-tip', `${src} · 耗精元 ${sk.energyCost} · 冷却 ${cd} 时辰`);
+    item.append(
+      el('span', 'sd-skill-name', `「${sk.name}」`),
+      el('div', 'sd-skill-desc', sk.desc),
+      el('div', 'sd-skill-meta', `${src} · 耗 ${sk.energyCost} 精元 · 冷却 ${cd} 时辰`),
+    );
+    skillBox.appendChild(item);
+  }
+  body.appendChild(skillBox);
 
   // 状态
   body.appendChild(el('h3', 'section-title', '状态'));

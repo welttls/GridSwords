@@ -35,7 +35,7 @@ export interface SwordSkill {
 }
 
 /** 五行天赋技能 */
-const ELEMENT_SKILLS: Record<Element, SwordSkill> = {
+export const ELEMENT_SKILLS: Record<Element, SwordSkill> = {
   metal: {
     id: 'skill_swordqi', name: '剑气斩', kind: 'projectile', element: 'metal',
     desc: '自剑尖推出弧光剑气，横贯剑域，所过之处剑意受创。',
@@ -64,7 +64,7 @@ const ELEMENT_SKILLS: Record<Element, SwordSkill> = {
 };
 
 /** 词条衍生技能 */
-const AFFIX_SKILLS: Record<string, SwordSkill> = {
+export const AFFIX_SKILLS: Record<string, SwordSkill> = {
   kill5: {
     id: 'skill_breach', name: '天门破', kind: 'line', affix: 'kill5',
     desc: '一剑破天门，直线贯穿剑域。',

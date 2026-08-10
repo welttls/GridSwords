@@ -1,4 +1,8 @@
 import type { Element, Genome } from '../types';
+import { ELEMENT_SKILLS, AFFIX_SKILLS } from './Skills';
+import type { SwordSkill } from './Skills';
+import { ELEMENT_LABEL } from './Genetics';
+import { affixName } from '../data/AffixDB';
 
 export type DuelSideId = 'player' | 'npc';
 
@@ -71,39 +75,58 @@ const MAX_ENERGY = 100;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
-/** 依据剑谱属性 + 词条自然生成招式 */
+/** 剑意技能 → 大比招式 (与野外剑技同源同效果) */
+function skillToTechnique(s: SwordSkill, maxHp: number): DuelTechnique {
+  const src = s.element ? `${ELEMENT_LABEL[s.element]}行天赋` : `「${affixName(s.affix ?? '')}」`;
+  const base = { id: s.id, name: s.name, desc: s.desc, source: src };
+  switch (s.kind) {
+    case 'projectile':
+      return { ...base, kind: 'attack', dmgMult: s.dmgMult ?? 1.8, hits: 1, critBonus: 0.1, energyCost: s.energyCost };
+    case 'line':
+      return { ...base, kind: 'heavy', dmgMult: s.dmgMult ?? 2, hits: 1, critBonus: 0.15, energyCost: s.energyCost, drain: s.affix === 'parasite' };
+    case 'aoe':
+      return { ...base, kind: 'heavy', dmgMult: s.dmgMult ?? 1.5, hits: 1, critBonus: 0.05, energyCost: s.energyCost, poisonTicks: s.affix === 'poison' ? 4 : undefined, poisonDmg: 4 };
+    case 'heal':
+      return { ...base, kind: 'recover', dmgMult: 0.3, hits: 1, critBonus: 0, energyCost: s.energyCost, heal: Math.round(maxHp * (s.healPct ?? 0.3)) };
+    case 'teleport':
+      return { ...base, kind: 'quick', dmgMult: 0.9, hits: 1, critBonus: 0.2, energyCost: s.energyCost };
+    case 'convert':
+      return { ...base, kind: 'recover', dmgMult: 0.3, hits: 1, critBonus: 0, energyCost: s.energyCost, heal: Math.round(maxHp * (s.healPct ?? 0.25)), recoverEnergy: 25 };
+    case 'buff':
+      if (s.buffAtk) return { ...base, kind: 'quick', dmgMult: 0.7, hits: 2, critBonus: 0.1, energyCost: s.energyCost };
+      return { ...base, kind: 'guard', dmgMult: 0.6, hits: 1, critBonus: 0, energyCost: s.energyCost, heal: (s.buffDef ?? 0) >= 1.5 ? 16 : 6, guard: true };
+  }
+}
+
+/** 依据剑谱属性 + 词条自然生成招式 (含五行天赋剑技) */
 export function buildTechniques(genome: Genome, element: Element): DuelTechnique[] {
   const g = genome;
   const affixes = g.affixes ?? [];
-  const list: DuelTechnique[] = [];
-  const add = (t: DuelTechnique) => list.push(t);
+  const maxHp = Math.round(70 + g.toughness * 8);
 
-  // —— 属性招式 ——
-  if (g.sharpness >= 5) add({ id: 'break', name: '破军斩', desc: '以力破巧，势大力沉。', kind: 'heavy', dmgMult: 1.7, hits: 1, critBonus: 0.1, energyCost: 22, source: '锋锐' });
-  if (g.speed >= 5) add({ id: 'dash', name: '疾风刺', desc: '身随剑走，连刺数剑。', kind: 'quick', dmgMult: 0.7, hits: 2, critBonus: 0, energyCost: 18, source: '速度' });
-  if (g.perception >= 5) add({ id: 'insight', name: '洞幽斩', desc: '洞若观火，直击破绽。', kind: 'attack', dmgMult: 0.95, hits: 1, critBonus: 0.3, energyCost: 18, source: '感知' });
-  if (g.toughness >= 5) add({ id: 'guard', name: '磐石守', desc: '守御蓄势，伺机反扑。', kind: 'guard', dmgMult: 0.6, hits: 1, critBonus: 0, energyCost: 20, heal: 6, guard: true, source: '坚韧' });
-  if (g.aggression >= 0.6) add({ id: 'rage', name: '怒意斩', desc: '怒而拔剑，不守反攻。', kind: 'heavy', dmgMult: 1.5, hits: 1, critBonus: 0.15, energyCost: 20, selfDmg: 6, source: '杀性' });
+  // —— 五行天赋剑技 (此剑意天生剑技，必得) ——
+  const elementTech = skillToTechnique(ELEMENT_SKILLS[element], maxHp);
 
-  // —— 词条招式 ——
-  if (affixes.includes('kill5')) add({ id: 'kill', name: '斩念诀', desc: '斩断杂念，一剑定音。', kind: 'heavy', dmgMult: 2.1, hits: 1, critBonus: 0.15, energyCost: 26, source: '斩念成性' });
-  if (affixes.includes('fight15')) add({ id: 'hundred', name: '百炼守', desc: '百炼成钢，不动如山。', kind: 'guard', dmgMult: 0.5, hits: 1, critBonus: 0, energyCost: 22, heal: 16, guard: true, source: '百炼之体' });
-  if (affixes.includes('roam400')) add({ id: 'roam', name: '游龙步', desc: '游历万方，身法如龙。', kind: 'quick', dmgMult: 0.62, hits: 3, critBonus: 0.12, energyCost: 20, source: '游历万方' });
-  if (affixes.includes('eat30')) add({ id: 'eat', name: '吞金术', desc: '吞纳庚金，气力大复。', kind: 'recover', dmgMult: 0.3, hits: 1, critBonus: 0, energyCost: 0, heal: 10, recoverEnergy: 28, source: '吞金成性' });
-  if (affixes.includes('poison')) add({ id: 'poison', name: '淬毒剑', desc: '剑上淬毒，蚀骨销魂。', kind: 'poison', dmgMult: 0.85, hits: 1, critBonus: 0.05, energyCost: 22, poisonTicks: 4, poisonDmg: 4, source: '淬毒' });
-  if (affixes.includes('parasite')) add({ id: 'parasite', name: '寄灵夺舍', desc: '夺敌灵机，反哺己身。', kind: 'drain', dmgMult: 1.0, hits: 1, critBonus: 0.1, energyCost: 22, drain: true, source: '寄灵' });
+  // —— 属性招式 (按属性门槛自然生成) ——
+  const statTechs: DuelTechnique[] = [];
+  if (g.sharpness >= 5) statTechs.push({ id: 'break', name: '破军斩', desc: '以力破巧，势大力沉。', kind: 'heavy', dmgMult: 1.7, hits: 1, critBonus: 0.1, energyCost: 22, source: '锋锐' });
+  if (g.speed >= 5) statTechs.push({ id: 'dash', name: '疾风刺', desc: '身随剑走，连刺数剑。', kind: 'quick', dmgMult: 0.7, hits: 2, critBonus: 0, energyCost: 18, source: '速度' });
+  if (g.perception >= 5) statTechs.push({ id: 'insight', name: '洞幽斩', desc: '洞若观火，直击破绽。', kind: 'attack', dmgMult: 0.95, hits: 1, critBonus: 0.3, energyCost: 18, source: '感知' });
+  if (g.toughness >= 5) statTechs.push({ id: 'guard', name: '磐石守', desc: '守御蓄势，伺机反扑。', kind: 'guard', dmgMult: 0.6, hits: 1, critBonus: 0, energyCost: 20, heal: 6, guard: true, source: '坚韧' });
+  if (g.aggression >= 0.6) statTechs.push({ id: 'rage', name: '怒意斩', desc: '怒而拔剑，不守反攻。', kind: 'heavy', dmgMult: 1.5, hits: 1, critBonus: 0.15, energyCost: 20, selfDmg: 6, source: '杀性' });
 
-  // 无词条时仅保留最多 2 个属性招 + 基础招 = 3 招通用 (预设)
-  if (affixes.length === 0) list.length = Math.min(list.length, 2);
+  // —— 词条剑技 (与野外剑意技能同源) ——
+  const affixTechs: DuelTechnique[] = [];
+  for (const a of affixes) {
+    const s = AFFIX_SKILLS[a];
+    if (s) affixTechs.push(skillToTechnique(s, maxHp));
+  }
 
   // 通用基础招
   const base: DuelTechnique = { id: 'strike', name: '锋行', desc: '凝神一剑，直取中路。', kind: 'attack', dmgMult: 1.0, hits: 1, critBonus: 0, energyCost: 12, source: '本能' };
 
-  // 优先词条招式，最多 4 个
-  const AFFIX_SOURCES = ['斩念成性', '百炼之体', '游历万方', '吞金成性', '淬毒', '寄灵'];
-  const affixTechs = list.filter((t) => AFFIX_SOURCES.includes(t.source));
-  const statTechs = list.filter((t) => !AFFIX_SOURCES.includes(t.source));
-  const ordered = [base, ...affixTechs, ...statTechs];
+  // 组成：基础 + 五行天赋 + 词条(优先) + 属性(补位)，最多 4 招
+  const ordered = [base, elementTech, ...affixTechs, ...statTechs];
   return ordered.slice(0, 4);
 }
 

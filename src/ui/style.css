@@ -1392,6 +1392,37 @@ canvas {
   color: #ffd76a;
   font-weight: 600;
 }
+/* 剑技 (五行天赋 + 词条剑技) */
+.sd-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sd-skill-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid rgba(255, 215, 106, 0.45);
+  border-radius: 9px;
+  background: rgba(255, 215, 106, 0.04);
+  padding: 7px 11px;
+}
+.sd-skill-name {
+  color: #ffd76a;
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+.sd-skill-desc {
+  color: var(--ink-dim);
+  font-size: 12px;
+  line-height: 1.55;
+  letter-spacing: 1px;
+}
+.sd-skill-meta {
+  color: rgba(217, 178, 106, 0.65);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
 
 /* 来源徽章 */
 .sd-titlebox {
