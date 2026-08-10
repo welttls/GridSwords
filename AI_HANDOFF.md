@@ -76,7 +76,7 @@ src/
 
 **属性语义(v1.6.0 起)**：锋锐=攻击(含暴击)、坚韧=防御、感知=闪避率+视野、速度=蓄条/大比出手(世界内由 `speedBonus` 材料提供移动加速)、杀性=凶性(暴击)、策略=孤狼/合击。
 
-**词条系统**(`AffixDB.ts`，存于 `Genome.affixes` 可遗传)：eat30 吞金(采气≥20) / kill5 斩念(击破≥3) / fight15 百炼(历经≥12战) / roam400 游历(足迹≥250) / poison 淬毒(rare，锋锐≥7 且杀性≥0.55 且久历) / parasite 寄灵(rare，木行+合击+世代≥4)。判定在 `SwordAgent.recheckAffixes()` 每 tick 参悟。**v1.8.0 门槛放宽**。
+**词条系统**(`AffixDB.ts`，存于 `Genome.affixes` 可遗传)：eat30 吞金(采气≥20) / kill5 斩念(击破≥3) / fight15 百炼(历经≥12战) / roam400 游历(足迹≥250) / poison 淬毒(rare，锋锐≥7 且杀性≥0.55 且存续≥2500且历经≥15战) / parasite 寄灵(rare，木行+合击+世代≥4)。判定在 `SwordAgent.recheckAffixes()` 每 tick 参悟。**v1.8.0 门槛放宽、v1.9.0 淬毒加行为要求(存续2500/15战)修正稀有度**。
 
 **剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。
 
@@ -130,17 +130,20 @@ src/
 - **日志滚动**：`#app` 高度约束靠 `forge-screen` 类(height:100vh; overflow:hidden)，别删。
 - **响应式**：Pixi 会给 canvas 写内联 `width/height`，CSS 需 `width:auto!important` + `aspect-ratio:1/1`；点击映射用 `rect.width` 归一化。
 - **事件监听**：HUD/Renderer 都实现了 `destroy()`(字段级 handler 解绑)，新 UI 类请保持同款，避免监听器泄漏。
-- **存档迁移**：`SaveManager.load()` 已做字段级迁移(缺 `origin` 补 seed/wild)；新增存档字段时记得同步 `defaultSave()` 与 `exportSave()`。
+- **存档迁移**：`SaveManager.load()` 已做字段级迁移(缺 `origin` 补 seed/wild，含 `pendingAppraisal.winnerState`)；新增存档字段时记得同步 `defaultSave()` 与 `exportSave()`。
+- **刷新续玩(v1.9.0)**：存档 `pendingScene`('appraisal'|'tournament'|null) + `pendingAppraisal`(鉴定数据) + `pendingBattlePlayerState`(玩家剑状态)——`continueRun()` 按阶段路由(restoreAppraisal/restoreTournament)；`endTribulation` 成功设 appraisal、`finishAppraisal` 设 tournament、`doStartNewRun` 清空、`showMenu`(booted 后)清空。`exportSave` 的 `activeRun` 是按 `scene==='forge'` 计算的，鉴定/大比阶段靠 pendingScene 驱动「继续炼剑」按钮(MenuScene 已含 pendingScene)。
 - **部署路径**：JS 里引用 public 资源必须 `import.meta.env.BASE_URL + '...'` 拼接(BattleScene 大比背景、swordIcon 剑图)，别写死 `/img/...` 根绝对路径(子路径托管 404)；`src/vite-env.d.ts` 提供 `import.meta.env` 类型。
 - **资源体积**：`bg_1.jpg`(168KB) 由原 `bg_1.png`(4.2MB) 压缩而来——大图先压再入库。
 - **性能/移动端**：Pixi `resolution` 已钳制 `min(dpr, 2)`(手机 3x 背缓冲 1920² 每帧全量重绘开销大)；画布 `touch-action:none`；移动端用 `100dvh` + `env(safe-area-inset-bottom)`。
 - **World 增量集合(v1.8.1)**：`World` 维护 `foodCells`/`wallCells` 两个 `Set<number>`(键=`y*width+x`)，渲染端只遍历集合而非全网格——**新增/移除食物或墙的逻辑必须同步维护这两个集合**(`spawnFood`/`removeFood`/`spawnCorpseFood`/`spawnMegaFood`/`spawnFireWalls`/`shrink`/`wallExpiry`/`restoreEcoState` 等处)。
+- **特效系统(v1.9.0)**：野外 `Renderer` 三层特效——粒子 `spawnBurst` / `effects` 弹道环束(proj/ring/beam，`updateEffects`+`drawEffects`) / `floatTexts` 飘字(Pixi Text，上限8、destroy 清理)，**全部技能(projectile/aoe/line/heal/buff/teleport)施放均有技能名飘字**；buff 常驻光环与淬毒绿闪边在 `drawSword()` 直接读剑状态每帧绘制。大比 `BattleScene.playFx()` 按 `DuelFx` 播 DOM 特效(`.duel-fx` CSS)，strike 类(锋行/青藤缚等)也有基础斩击弧光。新增特效保持同款：字段级 handler、destroy 清理、飘字上限。
 - **存档时机**：除 5s 自动 + 事件触发外，`pagehide`/`visibilitychange(hidden)` 会再存一次(iOS `beforeunload` 不可靠)，防关页丢进度。
 
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
 
+- 2026-08-10 v1.9.0：技能特效全面强化(野外 buff 常驻光环/全技能飘字/命中爆点/淬毒绿闪边；大比回春护盾淬毒寄灵天门破游龙重击与基础斩击全加强+飘字+受击闪光) + 暂停态点倍率自动恢复走时 + 灵鉴弹窗可滚动 + 刷新续玩(鉴定/大比可经「继续炼剑」恢复) + 淬毒词条门槛加行为要求(存续≥2500/历经≥15战)修正稀有度(凶潮 2.9→0.7 柄/局)。
 - 2026-08-10 v1.8.1：修复击杀后攻方不占格/鉴定标签门槛与词条不一致/闪避反震回血/大比自伤不判负；性能优化(渲染增量集合 foodCells/wallCells、消除重复全盘扫描、洗牌复用、技能缓存)；Markdown lint 清理 + 新增 .markdownlint.json。
 - 2026-08-10 v1.8.0：技能系统扩充(五行每行 2 技 + 大比招式上限 5) + 词条门槛放宽(eat30/kill5/fight15/roam400/淬毒/寄灵) + 修复鉴定命名 UI(标签/边框/点击反馈) + finishAppraisal 空名兜底 + 觅食本能 0.7→0.85 与惯性减半(修剑意兜圈/无视食物) + 鉴定页属性/评分/特质说明浮窗。
 - 2026-08-10 v1.7.0：外测发布准备——DPR 钳制 2x + 画布 touch-action、移动端 100dvh/safe-area、pagehide 关闭前自动存档、BattleScene/swordIcon 改 BASE_URL 路径、bg_1.png(4.2MB)→bg_1.jpg(168KB)、favicon、新增 vite-env.d.ts；部署接 Vercel。

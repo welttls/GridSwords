@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import type { World } from '../simulation/World';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { ELEMENT_COLOR } from '../simulation/Genetics';
@@ -17,6 +17,16 @@ interface Particle {
   life: number;
   maxLife: number;
   baseR: number;
+}
+
+/** 飘字 (技能名/回春等，上浮淡出) */
+interface FloatText {
+  t: Text;
+  x: number;
+  y: number;
+  vy: number;
+  life: number;
+  maxLife: number;
 }
 
 /** 技能特效 (持续帧动画) */
@@ -51,6 +61,7 @@ export class WorldRenderer {
   private particleLayer: Container;
   private effects: Effect[] = [];
   private effectLayer: Container;
+  private floatTexts: FloatText[] = [];
   private lastTick = 0;
   /** 绑定的事件处理器 (供 off 精确解绑) */
   private hBattleHit = (e: ParticleEvent) => this.onBattleHit(e);
@@ -96,6 +107,12 @@ export class WorldRenderer {
     // 清理残留粒子
     for (const p of this.particles) this.particleLayer.removeChild(p.g);
     this.particles.length = 0;
+    // 清理飘字 (Pixi Text 需显式 destroy 防泄漏)
+    for (const f of this.floatTexts) {
+      this.effectLayer.removeChild(f.t);
+      f.t.destroy();
+    }
+    this.floatTexts.length = 0;
   }
 
   /** 设置选中剑意 (绘制高亮框) */
@@ -178,50 +195,99 @@ export class WorldRenderer {
   // ===== 技能特效 =====
   private onSkill(e: SkillVisual): void {
     const c = this.elementColor(e.element);
+    const label = e.text;
     switch (e.kind) {
       case 'projectile': {
         const dx = e.dx ?? 1;
         const dy = e.dy ?? 0;
         this.effects.push({ kind: 'proj', x: e.x, y: e.y, dx, dy, color: c, life: 2, maxLife: 2, radius: 0 });
         this.spawnBurst(e.x, e.y, 0xffffff, 4, this.cell * 3, this.cell * 0.1, 0.25);
+        if (label) this.pushFloatText(e.x, e.y - 1, label, c);
         break;
       }
       case 'aoe': {
-        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xff6a4a, life: 0.6, maxLife: 0.6, radius: e.radius ?? 3 });
-        this.spawnBurst(e.x, e.y, 0xff6a4a, 16, this.cell * 6, this.cell * 0.18, 0.6);
+        // 双环（外色 + 内白亮核）+ 双色爆闪
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: c, life: 0.7, maxLife: 0.7, radius: (e.radius ?? 3) + 0.5 });
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.35, maxLife: 0.35, radius: 1.8 });
+        this.spawnBurst(e.x, e.y, c, 20, this.cell * 6, this.cell * 0.18, 0.6);
+        this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 5, this.cell * 0.12, 0.3);
+        if (label) this.pushFloatText(e.x, e.y - 1, label, c);
         break;
       }
       case 'line': {
         const dx = e.dx ?? 1;
         const dy = e.dy ?? 0;
-        this.effects.push({ kind: 'beam', x: e.x, y: e.y, dx, dy, color: 0x9ac8ff, life: 0.3, maxLife: 0.3, radius: 20 });
-        this.spawnBurst(e.x, e.y, 0x9ac8ff, 8, this.cell * 5, this.cell * 0.14, 0.4);
+        // 外层色束 + 内层白核，命中端爆点
+        this.effects.push({ kind: 'beam', x: e.x, y: e.y, dx, dy, color: c, life: 0.4, maxLife: 0.4, radius: 20 });
+        this.effects.push({ kind: 'beam', x: e.x, y: e.y, dx, dy, color: 0xffffff, life: 0.18, maxLife: 0.18, radius: 16 });
+        this.spawnBurst(e.x, e.y, c, 10, this.cell * 5, this.cell * 0.14, 0.4);
+        this.spawnImpact(e.x + dx * 16, e.y + dy * 16, c);
+        if (label) this.pushFloatText(e.x, e.y - 1, label, c);
         break;
       }
       case 'teleport': {
-        this.spawnBurst(e.x, e.y, 0x5aa9ff, 14, this.cell * 6, this.cell * 0.18, 0.55);
-        this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 5, this.cell * 0.12, 0.35);
+        // 起点白闪 + 蓝色涟漪 + 白色内环 + 飘字
+        this.spawnBurst(e.x, e.y, 0x5aa9ff, 16, this.cell * 6, this.cell * 0.18, 0.55);
+        this.spawnBurst(e.x, e.y, 0xffffff, 8, this.cell * 5, this.cell * 0.12, 0.35);
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0x5aa9ff, life: 0.5, maxLife: 0.5, radius: 2.2 });
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.25, maxLife: 0.25, radius: 1.2 });
+        if (label) this.pushFloatText(e.x, e.y - 1, label, 0x5aa9ff);
         break;
       }
       case 'heal': {
-        this.spawnBurst(e.x, e.y, 0x7ddb8f, 14, this.cell * 4, this.cell * 0.16, 0.9);
-        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0x7ddb8f, life: 0.5, maxLife: 0.5, radius: 1.6 });
+        // 回春：绿色双环 + 白亮核 + 上升光点 + 飘字
+        this.spawnBurst(e.x, e.y, 0x7ddb8f, 18, this.cell * 4, this.cell * 0.16, 0.9);
+        this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 3, this.cell * 0.1, 0.5);
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0x7ddb8f, life: 0.6, maxLife: 0.6, radius: 2 });
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.3, maxLife: 0.3, radius: 1.2 });
+        if (label) this.pushFloatText(e.x, e.y - 1, label, 0x7ddb8f);
         break;
       }
       case 'buff': {
-        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffd76a, life: 0.7, maxLife: 0.7, radius: 2 });
+        // buff：金色双环扩散 + 元素色粒子柱 + 飘字
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffd76a, life: 0.8, maxLife: 0.8, radius: 2.4 });
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: c, life: 0.5, maxLife: 0.5, radius: 1.4 });
+        this.spawnBurst(e.x, e.y, c, 12, this.cell * 5, this.cell * 0.15, 0.6);
+        this.spawnBurst(e.x, e.y, 0xffd76a, 6, this.cell * 4, this.cell * 0.1, 0.45);
+        if (label) this.pushFloatText(e.x, e.y - 1, label, 0xffd76a);
         break;
       }
     }
   }
 
-  /** 推进特效 (弹道移动 / 生命周期) */
+  /** 命中爆点：亮核 + 元素色小环 */
+  private spawnImpact(x: number, y: number, color: number): void {
+    this.spawnBurst(x, y, color, 6, this.cell * 4, this.cell * 0.12, 0.3);
+    this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color, life: 0.35, maxLife: 0.35, radius: 1.6 });
+  }
+
+  /** 飘字 (技能名/回春等)：上浮淡出，上限防 Text 对象堆积 */
+  private pushFloatText(x: number, y: number, text: string, color: number): void {
+    if (this.floatTexts.length >= 8 || !text) return;
+    const t = new Text(text, {
+      fontFamily: 'serif',
+      fontSize: Math.max(11, this.cell * 1.2),
+      fill: color,
+      stroke: 0x0c1017,
+      strokeThickness: 3,
+      fontWeight: 'bold',
+    });
+    t.anchor.set(0.5);
+    t.x = (x + 0.5) * this.cell;
+    t.y = (y + 0.5) * this.cell;
+    this.effectLayer.addChild(t);
+    this.floatTexts.push({ t, x: t.x, y: t.y, vy: -this.cell * 1.3, life: 0.9, maxLife: 0.9 });
+  }
+
+  /** 推进特效 (弹道移动 / 生命周期) + 飘字 */
   private updateEffects(dt: number): void {
     const cell = this.cell;
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const e = this.effects[i];
       e.life -= dt;
       if (e.life <= 0) {
+        // 弹道终点爆点 (命中目标/边界)
+        if (e.kind === 'proj') this.spawnImpact(e.x, e.y, e.color);
         this.effects.splice(i, 1);
         continue;
       }
@@ -229,8 +295,21 @@ export class WorldRenderer {
         e.x += e.dx * 26 * dt;
         e.y += e.dy * 26 * dt;
         if (e.x < 0 || e.x >= this.width || e.y < 0 || e.y >= this.height) {
+          this.spawnImpact(e.x, e.y, e.color);
           this.effects.splice(i, 1);
         }
+      }
+    }
+    // 飘字推进
+    for (let i = this.floatTexts.length - 1; i >= 0; i--) {
+      const f = this.floatTexts[i];
+      f.life -= dt;
+      f.t.y += f.vy * dt;
+      f.t.alpha = Math.min(1, (f.life / f.maxLife) * 1.6);
+      if (f.life <= 0) {
+        this.effectLayer.removeChild(f.t);
+        f.t.destroy();
+        this.floatTexts.splice(i, 1);
       }
     }
   }
@@ -380,6 +459,30 @@ export class WorldRenderer {
       g.beginFill(0xc48aff, 0.9);
       g.drawCircle(cx + fx * len * 0.6, cy + fy * len * 0.6, 1.7);
       g.endFill();
+    }
+
+    // 技能 buff 光环：加持期间剑身脉动 (攻=火红 / 防=水蓝，持续整个 buff 时长)
+    const bAtk = s.state.buffAtkTicks ?? 0;
+    const bDef = s.state.buffDefTicks ?? 0;
+    if (bAtk > 0 || bDef > 0) {
+      const aura = bAtk > 0 ? 0xff6a4a : 0x5aa9ff;
+      const wob = Math.sin(tick * 0.3 + s.state.position.x + s.state.position.y);
+      g.beginFill(aura, 0.1 + 0.07 * wob);
+      g.drawCircle(cx, cy, cell * 0.92);
+      g.endFill();
+      g.lineStyle(1.6, aura, 0.6 + 0.2 * wob);
+      g.drawCircle(cx, cy, cell * 0.92);
+      g.lineStyle(0.8, 0xffd76a, 0.11 + 0.11 * wob);
+      g.drawCircle(cx, cy, cell * 1.18);
+      g.lineStyle(0);
+    }
+
+    // 淬毒：中毒期间绿色闪边
+    if ((s.state.poisonTicks ?? 0) > 0) {
+      const flicker = 0.55 + 0.45 * Math.sin(tick * 0.5 + s.state.position.x);
+      g.lineStyle(1.4, 0x6fd08a, 0.5 * flicker);
+      g.drawRect(s.state.position.x * cell + 1, s.state.position.y * cell + 1, cell - 2, cell - 2);
+      g.lineStyle(0);
     }
 
     // 濒死红芒

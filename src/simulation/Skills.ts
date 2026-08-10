@@ -221,7 +221,7 @@ export function castSkill(
       const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
       hitLine(agent, world, dx, dy, s.range ?? 12, dmgBase * (s.dmgMult ?? 1.8), 0);
-      eventBus.emit(EVT.SKILL, { kind: 'projectile', x, y, dx, dy, element: color });
+      eventBus.emit(EVT.SKILL, { kind: 'projectile', x, y, dx, dy, element: color, text: s.name });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意施展「${s.name}」，剑气横贯剑域！`);
       break;
     }
@@ -240,7 +240,7 @@ export function castSkill(
           hit++;
         }
       }
-      eventBus.emit(EVT.SKILL, { kind: 'aoe', x, y, radius: r, element: color });
+      eventBus.emit(EVT.SKILL, { kind: 'aoe', x, y, radius: r, element: color, text: s.name });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意引爆「${s.name}」，波及${hit}柄剑意！`);
       break;
     }
@@ -249,16 +249,16 @@ export function castSkill(
       const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
       const total = hitLine(agent, world, dx, dy, s.range ?? 16, dmgBase * (s.dmgMult ?? 2), s.affix === 'parasite' ? 0.5 : 0);
-      eventBus.emit(EVT.SKILL, { kind: 'line', x, y, dx, dy, element: color });
+      eventBus.emit(EVT.SKILL, { kind: 'line', x, y, dx, dy, element: color, text: s.name });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意使出「${s.name}」，天门洞开、直线贯穿！`);
       break;
     }
     case 'teleport': {
       const pos = findTeleportSpot(world, x, y, 6);
-      eventBus.emit(EVT.SKILL, { kind: 'teleport', x, y, element: color });
+      eventBus.emit(EVT.SKILL, { kind: 'teleport', x, y, element: color, text: s.name });
       if (pos) {
         world.moveSword(agent, pos.x, pos.y);
-        eventBus.emit(EVT.SKILL, { kind: 'teleport', x: pos.x, y: pos.y, element: color });
+        eventBus.emit(EVT.SKILL, { kind: 'teleport', x: pos.x, y: pos.y, element: color, text: s.name });
         eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意身化「${s.name}」，瞬间移形换影！`);
       }
       break;
@@ -268,14 +268,14 @@ export function castSkill(
       const heal = Math.round(MAX_HP * (s.healPct ?? 0.25));
       st.hp = Math.min(MAX_HP, st.hp + heal);
       if (s.buffAtk) { st.buffAtkMult = s.buffAtk; st.buffAtkTicks = s.buffTicks; }
-      eventBus.emit(EVT.SKILL, { kind: 'heal', x, y, element: color });
+      eventBus.emit(EVT.SKILL, { kind: 'heal', x, y, element: color, text: s.name });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意施展「${s.name}」，剑体回复${heal}点！`);
       break;
     }
     case 'buff': {
       if (s.buffDef) { st.buffDefMult = s.buffDef; st.buffDefTicks = s.buffTicks; }
       if (s.buffAtk) { st.buffAtkMult = s.buffAtk; st.buffAtkTicks = s.buffTicks; }
-      eventBus.emit(EVT.SKILL, { kind: 'buff', x, y, element: color });
+      eventBus.emit(EVT.SKILL, { kind: 'buff', x, y, element: color, text: s.name });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意凝神施展「${s.name}」，气势陡增！`);
       break;
     }

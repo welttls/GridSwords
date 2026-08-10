@@ -1,6 +1,25 @@
 import type { Element, Genome, RankedSword, SwordState } from '../types';
 import { SAVE_KEY } from '../constants';
 
+/** 鉴定阶段持久化数据 (刷新后可重建「剑成鉴定」界面) */
+export interface PendingAppraisal {
+  winnerState: SwordState;
+  score: number;
+  breakdown: { label: string; value: number }[];
+  tags: string[];
+  tree: {
+    id: string;
+    generation: number;
+    day: number;
+    label: string;
+    children: number;
+    element: Element;
+    isWinner?: boolean;
+  }[];
+  populationHistory: number[];
+  totalTicks: number;
+}
+
 /** 存档结构 (JSON 序列化，无循环引用) */
 export interface GameSave {
   version: number;
@@ -32,6 +51,10 @@ export interface GameSave {
     spawnFood: boolean;
     isShrinking: boolean;
   } | null;
+  // —— 中断续玩：记录当前所处阶段 (鉴定/大比，刷新后可回到原界面) ——
+  pendingScene: 'appraisal' | 'tournament' | null;
+  pendingAppraisal?: PendingAppraisal | null;
+  pendingBattlePlayerState?: SwordState | null;
 }
 
 export function defaultSave(): GameSave {
@@ -54,6 +77,9 @@ export function defaultSave(): GameSave {
     rootId: null,
     maxGeneration: 1,
     eco: null,
+    pendingScene: null,
+    pendingAppraisal: null,
+    pendingBattlePlayerState: null,
   };
 }
 
@@ -71,6 +97,12 @@ export class SaveManager {
           if (!s.origin) s.origin = s.id === save.rootId ? 'seed' : 'wild';
           if (s.genome && !Array.isArray(s.genome.affixes)) s.genome.affixes = [];
         }
+      }
+      // 鉴定续玩：补 winnerState 字段迁移
+      const ws = save.pendingAppraisal?.winnerState;
+      if (ws) {
+        if (!ws.origin) ws.origin = 'seed';
+        if (ws.genome && !Array.isArray(ws.genome.affixes)) ws.genome.affixes = [];
       }
       if (!Array.isArray(save.materialCounts)) save.materialCounts = {};
       return save;

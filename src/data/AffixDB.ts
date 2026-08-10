@@ -32,7 +32,7 @@ export const AFFIXES: AffixDef[] = [
   {
     id: 'poison',
     name: '淬毒',
-    desc: '锋锐 ≥ 7 且杀性高、久历杀伐。攻击附毒，令敌剑体持续溃烂。',
+    desc: '锋锐 ≥ 7 且杀性高、久历杀伐（存续 ≥ 3 日且历经 ≥ 15 战）。攻击附毒，令敌剑体持续溃烂。',
     rare: true,
   },
   {

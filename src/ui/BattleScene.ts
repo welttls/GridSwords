@@ -235,6 +235,15 @@ export function buildTournament(
       window.setTimeout(() => e.remove(), 1100);
       return e;
     };
+    // 飘字 (回复/护盾在攻方，其余在守方附近)
+    const pop = (text: string, cls: string, x: number, y: number) => {
+      const p = el('div', `duel-fx df-pop ${cls}`, text);
+      p.style.left = `${x}px`;
+      p.style.top = `${y}px`;
+      field.appendChild(p);
+      window.setTimeout(() => p.remove(), 900);
+      return p;
+    };
     switch (fx) {
       case 'slash': {
         const s = mk('df-slash');
@@ -244,14 +253,29 @@ export function buildTournament(
         s.style.setProperty('--ang', `${ang}rad`);
         s.style.setProperty('--dist', `${Math.max(60, dist)}px`);
         s.style.background = `linear-gradient(90deg, transparent 0%, ${color} 40%, #ffffff 100%)`;
+        // 受击闪光
+        const imp = mk('df-impact');
+        imp.style.left = `${dx - 18}px`;
+        imp.style.top = `${dy - 18}px`;
+        imp.style.borderColor = color;
         break;
       }
       case 'beam': {
+        // 外层色束 + 内层白核 + 命中端爆闪
         const b = mk('df-beam');
         b.style.left = `${Math.min(ax, dx)}px`;
         b.style.top = `${(ay + dy) / 2 - 5}px`;
         b.style.width = `${dist}px`;
         b.style.background = `linear-gradient(90deg, ${color}, #ffffff 55%, ${color})`;
+        const core = mk('df-beam-core');
+        core.style.left = `${Math.min(ax, dx)}px`;
+        core.style.top = `${(ay + dy) / 2 - 2}px`;
+        core.style.width = `${dist}px`;
+        const imp = mk('df-impact');
+        imp.style.left = `${dx - 18}px`;
+        imp.style.top = `${dy - 18}px`;
+        imp.style.borderColor = color;
+        burst(dx, dy, color, 10);
         break;
       }
       case 'blast': {
@@ -260,42 +284,97 @@ export function buildTournament(
         bo.style.top = `${dy - 30}px`;
         bo.style.borderColor = color;
         bo.style.boxShadow = `0 0 26px 6px ${color}`;
+        const imp = mk('df-impact');
+        imp.style.left = `${dx - 18}px`;
+        imp.style.top = `${dy - 18}px`;
+        imp.style.borderColor = '#ffffff';
+        burst(dx, dy, color, 18);
         break;
       }
       case 'drain': {
+        // 加粗吸血线 + 流动光点 (守→攻) + 攻方回复闪光 + 飘字
         const dl = mk('df-drain');
         dl.style.width = `${dist}px`;
         dl.style.left = `${dx}px`;
         dl.style.top = `${dy}px`;
         dl.style.setProperty('--ang', `${ang + Math.PI}rad`);
+        for (let i = 0; i < 3; i++) {
+          const fl = mk('df-drain-flow');
+          fl.style.left = `${dx}px`;
+          fl.style.top = `${dy}px`;
+          fl.style.setProperty('--ang', `${ang + Math.PI}rad`);
+          fl.style.setProperty('--dist', `${dist}px`);
+          fl.style.setProperty('--i', String(i));
+        }
         const g = mk('df-heal-flash');
-        g.style.left = `${ax - 24}px`;
-        g.style.top = `${ay - 24}px`;
-        g.style.background = `radial-gradient(circle, rgba(111,208,138,.85), transparent 70%)`;
+        g.style.left = `${ax - 30}px`;
+        g.style.top = `${ay - 30}px`;
+        g.style.width = '60px';
+        g.style.height = '60px';
+        g.style.background = `radial-gradient(circle, rgba(196,138,255,.95), rgba(111,208,138,.5) 60%, transparent 75%)`;
+        const imp = mk('df-impact');
+        imp.style.left = `${dx - 16}px`;
+        imp.style.top = `${dy - 16}px`;
+        imp.style.borderColor = '#c48aff';
+        pop('噬', 'pop-purple', dx, dy - 28);
         break;
       }
       case 'poison': {
+        // 双层毒雾 (外晕+内亮核) + 冒泡绿粒 + 飘字
         const p = mk('df-poison');
         p.style.left = `${dx - 30}px`;
         p.style.top = `${dy - 30}px`;
+        const core = mk('df-poison-core');
+        core.style.left = `${dx - 16}px`;
+        core.style.top = `${dy - 16}px`;
+        for (let i = 0; i < 6; i++) {
+          const bub = mk('df-poison-bub');
+          bub.style.left = `${dx - 22 + Math.random() * 44}px`;
+          bub.style.top = `${dy - 18 + Math.random() * 36}px`;
+          bub.style.setProperty('--i', String(i));
+        }
+        pop('毒', 'pop-green', dx, dy - 28);
         break;
       }
       case 'heal': {
+        // 双层回复光柱 + 上浮光粒 + 飘字
         const h = mk('df-heal');
         h.style.left = `${ax - 18}px`;
         h.style.top = `${ay - 40}px`;
         h.style.background = `linear-gradient(180deg, ${color}, rgba(111,208,138,0))`;
+        const core = mk('df-heal-core');
+        core.style.left = `${ax - 9}px`;
+        core.style.top = `${ay - 40}px`;
+        for (let i = 0; i < 5; i++) {
+          const gp = el('div', 'duel-particle');
+          gp.style.background = '#6fd08a';
+          gp.style.left = `${ax - 14 + Math.random() * 28}px`;
+          gp.style.top = `${ay + 12}px`;
+          gp.style.setProperty('--dx', `${(Math.random() - 0.5) * 24}px`);
+          gp.style.setProperty('--dy', `${-52 - Math.random() * 40}px`);
+          gp.style.setProperty('--ps', `${0.6 + Math.random() * 0.4}s`);
+          field.appendChild(gp);
+          window.setTimeout(() => gp.remove(), 900);
+        }
+        pop('回春', 'pop-green', ax, ay - 46);
         break;
       }
       case 'shield': {
+        // 外护盾 + 内层旋转环 + 飘字
         const sh = mk('df-shield');
         sh.style.left = `${ax - 34}px`;
         sh.style.top = `${ay - 34}px`;
         sh.style.borderColor = color;
         sh.style.boxShadow = `0 0 20px 2px ${color} inset, 0 0 14px 1px ${color}`;
+        const inner = mk('df-shield-inner');
+        inner.style.left = `${ax - 24}px`;
+        inner.style.top = `${ay - 24}px`;
+        inner.style.borderColor = color;
+        pop('护', 'pop-gold', ax, ay - 40);
         break;
       }
       case 'dash': {
+        // 残影环 + 光尾 + 火花
         for (let i = 1; i <= 3; i++) {
           const g = mk('df-dash');
           g.style.left = `${ax - 30 + i * 8}px`;
@@ -303,14 +382,39 @@ export function buildTournament(
           g.style.setProperty('--i', String(i));
           g.style.borderColor = color;
         }
+        const tail = mk('df-dash-tail');
+        tail.style.left = `${ax - 44}px`;
+        tail.style.top = `${ay - 3}px`;
+        tail.style.background = `linear-gradient(90deg, transparent, ${color})`;
+        burst(ax, ay, color, 8);
         break;
       }
       case 'heavy': {
+        // 冲击波 + 白色亮核 + 尘土粒子
         const hw = mk('df-heavy');
         hw.style.left = `${dx - 35}px`;
         hw.style.top = `${dy - 35}px`;
         hw.style.borderColor = color;
         hw.style.boxShadow = `0 0 22px 4px ${color}`;
+        const imp = mk('df-impact');
+        imp.style.left = `${dx - 18}px`;
+        imp.style.top = `${dy - 18}px`;
+        imp.style.borderColor = '#ffffff';
+        burst(dx, dy, color, 12);
+        break;
+      }
+      case 'strike': {
+        // 基础斩击弧光 + 受击闪光 (锋行/洞幽斩/青藤缚等)
+        const s = mk('df-strike');
+        s.style.left = `${dx - 24}px`;
+        s.style.top = `${dy - 24}px`;
+        s.style.setProperty('--ang', `${ang}rad`);
+        s.style.background = `linear-gradient(90deg, transparent, ${color} 60%, #ffffff)`;
+        const imp = mk('df-impact');
+        imp.style.left = `${dx - 16}px`;
+        imp.style.top = `${dy - 16}px`;
+        imp.style.borderColor = color;
+        burst(dx, dy, color, 6);
         break;
       }
       default:
@@ -400,8 +504,8 @@ export function buildTournament(
               window.setTimeout(() => defender.classList.remove('shaken'), 350);
             }, 260);
           }
-          // 技能专属特效
-          if (fx && fx !== 'strike') playFx(fx, attacker, defender, color);
+          // 技能专属特效 (含基础斩击 strike，保证每招都有反馈)
+          if (fx) playFx(fx, attacker, defender, color);
         }
       }
       const fill = (bar: HTMLElement, ratio: number, color: string) => {

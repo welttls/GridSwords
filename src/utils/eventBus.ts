@@ -26,6 +26,8 @@ export interface SkillVisual {
   dy?: number;
   element?: string;
   radius?: number;
+  /** 飘字文本 (技能名，渲染端上浮淡出；headless 无监听即忽略) */
+  text?: string;
 }
 
 /** 粒子事件负载 (网格坐标 + 五行) */

@@ -480,7 +480,8 @@ export class SwordAgent {
     if (b.killCount >= 3) add('kill5', false);
     if (b.attackCount + b.fightsSurvived >= 12) add('fight15', false);
     if (b.cellsVisited >= 250) add('roam400', false);
-    if (g.sharpness >= 7 && g.aggression >= 0.55 && this.state.age >= 1500) add('poison', true); // 淬毒：高锋锐+高杀性+久历杀伐
+    // 淬毒：高锋锐+高杀性+久历杀伐(存续≥2500tick≈第3日 且 历经≥15战，防凶剑躺赢自动悟毒)
+    if (g.sharpness >= 7 && g.aggression >= 0.55 && this.state.age >= 2500 && b.attackCount + b.fightsSurvived >= 15) add('poison', true);
     if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 4) add('parasite', true);
   }
 }

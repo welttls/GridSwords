@@ -87,6 +87,8 @@ export class Game {
 
   private saveTimer = 0;
   private frame = 0;
+  /** 是否已完成启动 (区分构造期的 showMenu 与用户主动返回主菜单) */
+  private booted = false;
 
   constructor() {
     this.host = document.getElementById('app')!;
@@ -126,6 +128,7 @@ export class Game {
       this.focusSword(id);
     });
     this.showMenu();
+    this.booted = true;
   }
 
   /** Pixi 画布 (断言为 HTMLCanvasElement) */
@@ -139,6 +142,13 @@ export class Game {
     this.host.classList.remove('forge-screen');
     this.paused = true;
     this.battle = null;
+    // 玩家主动返回主菜单 (大比「返回主菜单」等) → 清除鉴定/大比续玩标记，刷新后不再回跳
+    if (this.booted) {
+      this.save.pendingScene = null;
+      this.save.pendingAppraisal = null;
+      this.save.pendingBattlePlayerState = null;
+      this.saveGame();
+    }
     this.hideCanvas();
     // P3：离开炼剑/大比场景时销毁渲染器，解绑其粒子监听
     this.renderer?.destroy?.();
@@ -166,9 +176,9 @@ export class Game {
   }
 
   // ================= 开局 =================
-  /** P0-3：有进行中的局时，先确认是否放弃再开新局 */
+  /** P0-3：有进行中的局/鉴定/大比时，先确认是否放弃再开新局 */
   startNewRun(element: Element): void {
-    if (this.save.activeRun) {
+    if (this.save.activeRun || this.save.pendingScene) {
       const body = el('div', '');
       body.appendChild(el('p', '', '当前仍有一局炼剑未竟。'));
       body.appendChild(el('p', 'reseed-sub', '开始新局将放弃当前进度（不可恢复），确定吗？'));
@@ -237,6 +247,10 @@ export class Game {
     this.seedExtinctPrompted = false;
     this.selectedSwordId = null;
     this.emergenceTargetId = null;
+    // 新局弃用任何续玩阶段标记
+    this.save.pendingScene = null;
+    this.save.pendingAppraisal = null;
+    this.save.pendingBattlePlayerState = null;
 
     // 炉材次数初始化 (已解锁材料按可用次数)
     this.save.materialCounts = {};
@@ -261,6 +275,15 @@ export class Game {
   }
 
   continueRun(): void {
+    // 鉴定/大比续玩：刷新后回到原界面
+    if (this.save.pendingScene === 'appraisal') {
+      this.restoreAppraisal();
+      return;
+    }
+    if (this.save.pendingScene === 'tournament') {
+      this.restoreTournament();
+      return;
+    }
     if (!this.save.activeRun || !this.save.embryoGenome) {
       this.showMenu();
       return;
@@ -306,6 +329,52 @@ export class Game {
     this.paused = false;
   }
 
+  /** 由存档剑意状态重建 SwordAgent (鉴定/大比续玩，仅需 .state) */
+  private agentFromState(st: SwordState): SwordAgent {
+    const w = new World({ currentDay: this.save.day });
+    w.tickCounter = this.save.tickCounter;
+    const brain = new SimpleNN(NN_LAYERS, false);
+    brain.setFromFlat(st.brainWeights, st.brainBiases);
+    return new SwordAgent(st, brain, w);
+  }
+
+  /** 续玩：回到「剑成鉴定」命名界面 (刷新恢复) */
+  private restoreAppraisal(): void {
+    const pa = this.save.pendingAppraisal;
+    if (!pa?.winnerState) {
+      this.save.pendingScene = null;
+      this.saveGame();
+      this.showMenu();
+      return;
+    }
+    const data: AppraisalData = {
+      winner: this.agentFromState(pa.winnerState),
+      score: pa.score,
+      breakdown: pa.breakdown,
+      tags: pa.tags,
+      tree: pa.tree,
+      populationHistory: pa.populationHistory,
+      totalTicks: pa.totalTicks,
+    };
+    this.appraisalData = data;
+    this.showAppraisal(data);
+  }
+
+  /** 续玩：回到「试剑台」宗门大比 (刷新恢复，可重新选对手开战) */
+  private restoreTournament(): void {
+    const pState = this.save.pendingBattlePlayerState;
+    const ranked = pState ? this.save.history.find((h) => h.id === pState.id) : null;
+    if (!pState || !ranked) {
+      this.save.pendingScene = null;
+      this.saveGame();
+      this.showMenu();
+      return;
+    }
+    this.appraisedRanked = ranked;
+    this.battlePlayerState = pState;
+    this.showTournament();
+  }
+
   // ================= 炼剑主界面 =================
   private buildForgeScene(): void {
     this.scene = 'forge';
@@ -334,6 +403,8 @@ export class Game {
       this.paused,
       (s) => {
         this.speed = s;
+        // 暂停态点倍率 → 自动恢复走时（模态遮罩全屏挡住速度栏时点不到，安全）
+        if (this.paused) this.paused = false;
         this.refreshHudControls();
       },
       () => this.togglePause(),
@@ -769,6 +840,18 @@ export class Game {
       return;
     }
     this.appraisalData = data;
+    // 持久化鉴定阶段：刷新后可回到「剑成鉴定」命名界面
+    this.save.pendingScene = 'appraisal';
+    this.save.pendingAppraisal = {
+      winnerState: data.winner.state,
+      score: data.score,
+      breakdown: data.breakdown,
+      tags: data.tags,
+      tree: data.tree,
+      populationHistory: data.populationHistory,
+      totalTicks: data.totalTicks,
+    };
+    this.saveGame();
     this.showAppraisal(data);
   }
 
@@ -890,10 +973,15 @@ export class Game {
 
     const rank = this.save.history.findIndex((s) => s.id === ranked.id) + 1;
     this.applyUnlocks(this.computeRankUnlocks(rank));
+    // 持久化大比阶段：刷新后可回到试剑台
+    const playerState = JSON.parse(JSON.stringify(winner.state)) as SwordState;
+    this.save.pendingScene = 'tournament';
+    this.save.pendingAppraisal = null;
+    this.save.pendingBattlePlayerState = playerState;
     this.saveGame();
 
     this.appraisedRanked = ranked;
-    this.battlePlayerState = JSON.parse(JSON.stringify(winner.state)) as SwordState;
+    this.battlePlayerState = playerState;
     this.showTournament();
 
     if (rank > 0 && rank <= 20) {
@@ -1094,6 +1182,9 @@ export class Game {
       rootId: this.world?.rootId ?? null,
       maxGeneration: this.world?.maxGeneration ?? 1,
       eco: this.world ? this.world.exportEcoState() : null,
+      pendingScene: this.save.pendingScene,
+      pendingAppraisal: this.save.pendingAppraisal,
+      pendingBattlePlayerState: this.save.pendingBattlePlayerState,
     };
   }
 

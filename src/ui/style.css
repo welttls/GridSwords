@@ -481,8 +481,10 @@ canvas {
 }
 .modal-overlay > .modal > .material-list,
 .modal-overlay > .modal > .rank-list,
-.modal-overlay > .modal > .codex-wrap {
+.modal-overlay > .modal > .codex-wrap,
+.modal-overlay > .modal > .sword-detail {
   overflow-y: auto;
+  min-height: 0;
   padding: 16px 20px 20px;
 }
 
@@ -949,10 +951,10 @@ canvas {
 }
 /* 寄灵噬：吸血线 */
 .df-drain {
-  height: 3px;
+  height: 5px;
   background: linear-gradient(90deg, #c48aff, #ffd76a);
   transform-origin: right center;
-  box-shadow: 0 0 10px 1px rgba(196, 138, 255, 0.8);
+  box-shadow: 0 0 14px 3px rgba(196, 138, 255, 0.9);
   animation: dfDrain 0.6s ease-in forwards;
 }
 @keyframes dfDrain {
@@ -970,13 +972,14 @@ canvas {
   0% { transform: scale(0.4); opacity: 1; }
   100% { transform: scale(1.6); opacity: 0; }
 }
-/* 淬毒雨：毒雾 */
+/* 淬毒雨：毒雾 (外晕) */
 .df-poison {
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(126, 217, 87, 0.65), transparent 70%);
+  background: radial-gradient(circle, rgba(126, 217, 87, 0.7), transparent 70%);
   filter: blur(1px);
+  box-shadow: 0 0 18px 5px rgba(126, 217, 87, 0.55);
   animation: dfPoison 1s ease-out forwards;
 }
 @keyframes dfPoison {
@@ -1032,6 +1035,130 @@ canvas {
 @keyframes dfHeavy {
   0% { transform: scale(0.15); opacity: 1; }
   100% { transform: scale(1.7); opacity: 0; }
+}
+/* 天门破：内层白核 */
+.df-beam-core {
+  height: 4px;
+  border-radius: 2px;
+  transform-origin: left center;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 16px 4px rgba(255, 255, 255, 0.9);
+  animation: dfBeam 0.5s ease-out forwards;
+}
+/* 受击闪光环 (通用命中爆点) */
+.df-impact {
+  width: 40px;
+  height: 40px;
+  border: 2.5px solid;
+  border-radius: 50%;
+  animation: dfImpact 0.45s ease-out forwards;
+}
+@keyframes dfImpact {
+  0% { transform: scale(0.2); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+/* 淬毒雨：内亮核 */
+.df-poison-core {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(186, 255, 120, 0.9), rgba(126, 217, 87, 0.25) 60%, transparent 75%);
+  animation: dfPoison 0.8s ease-out forwards;
+}
+/* 淬毒雨：冒泡绿粒 */
+.df-poison-bub {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(170, 235, 130, 0.95);
+  box-shadow: 0 0 8px 2px rgba(126, 217, 87, 0.8);
+  animation: dfBub 0.9s ease-in forwards;
+  animation-delay: calc(var(--i, 0) * 0.06s);
+}
+@keyframes dfBub {
+  0% { transform: translateY(0) scale(0.6); opacity: 1; }
+  100% { transform: translateY(-28px) scale(0.2); opacity: 0; }
+}
+/* 寄灵噬：流动光点 (守→攻) */
+.df-drain-flow {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px 2px rgba(196, 138, 255, 0.9);
+  animation: dfDrainFlow 0.6s ease-in forwards;
+  animation-delay: calc(var(--i, 0) * 0.1s);
+}
+@keyframes dfDrainFlow {
+  0% { transform: rotate(var(--ang)) translateX(0); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: rotate(var(--ang)) translateX(calc(-1 * var(--dist, 120px))); opacity: 0; }
+}
+/* 回复光柱内芯 (回春/吞金燃灵) */
+.df-heal-core {
+  width: 18px;
+  height: 42px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  filter: blur(1px);
+  animation: dfHeal 0.8s ease-out forwards;
+}
+/* 护盾内层旋转环 */
+.df-shield-inner {
+  width: 48px;
+  height: 48px;
+  border: 2px dashed;
+  border-radius: 50%;
+  animation: dfShieldSpin 1.05s linear forwards;
+}
+@keyframes dfShieldSpin {
+  0% { transform: rotate(0deg) scale(0.9); opacity: 0.9; }
+  100% { transform: rotate(360deg) scale(1.12); opacity: 0; }
+}
+/* 游龙/瞬水/疾风：光尾 */
+.df-dash-tail {
+  width: 36px;
+  height: 6px;
+  border-radius: 4px;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6));
+  animation: dfDashTail 0.4s ease-out forwards;
+}
+@keyframes dfDashTail {
+  0% { transform: translateX(0); opacity: 0.9; }
+  100% { transform: translateX(32px); opacity: 0; }
+}
+/* 基础斩击弧光 (锋行/洞幽/青藤) */
+.df-strike {
+  width: 48px;
+  height: 8px;
+  border-radius: 5px;
+  transform-origin: center;
+  filter: drop-shadow(0 0 7px rgba(255, 255, 255, 0.6));
+  animation: dfStrike 0.35s ease-out forwards;
+}
+@keyframes dfStrike {
+  0% { transform: rotate(var(--ang)) scaleX(0); opacity: 1; }
+  55% { opacity: 1; }
+  100% { transform: rotate(var(--ang)) scaleX(1); opacity: 0; }
+}
+/* 飘字 (回春/毒/噬/护) */
+.df-pop {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.7), 0 2px 4px rgba(0, 0, 0, 0.8);
+  animation: dfPop 0.8s ease-out forwards;
+  z-index: 7;
+}
+.df-pop.pop-green { color: #6fd08a; }
+.df-pop.pop-purple { color: #c48aff; }
+.df-pop.pop-gold { color: #ffd76a; }
+@keyframes dfPop {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  18% { opacity: 1; }
+  100% { transform: translate(-50%, -140%) scale(1.1); opacity: 0; }
 }
 /* 大招大字 */
 .duel-tech-title {

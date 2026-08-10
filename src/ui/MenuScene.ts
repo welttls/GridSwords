@@ -21,7 +21,7 @@ export function buildMenu(host: HTMLElement, game: Game): void {
     buttons.appendChild(b);
   };
   mk('☰ 开始炼剑', () => game.showEmbryoSelect());
-  if (game.save.activeRun) {
+  if (game.save.activeRun || game.save.pendingScene) {
     mk('▶ 继续炼剑', () => game.continueRun(), 'btn-ghost');
   }
   mk('万剑榜', () => game.showRanking(), 'btn-ghost');
