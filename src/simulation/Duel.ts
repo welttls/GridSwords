@@ -353,15 +353,18 @@ export class Duel {
 
     if (!isSupport) {
       for (let h = 0; h < tech.hits; h++) {
-        let dodge = this.clamp((d.speed - a.speed) * 0.05, 0, 0.3);
+        // 闪避：两边比感知，差值决定闪避率 (感知高者易避来剑)
+        let dodge = this.clamp((d.perc - a.perc) * 0.06 + 0.08, 0.05, 0.45);
         if (d.art === 'agile') dodge += 0.12;
+        dodge = this.clamp(dodge, 0, 0.45); // 游斗加成后仍不超上限
         if (dodge > 0 && Math.random() < dodge) {
           dodged = true;
           continue;
         }
         const raw = Math.max(2, (a.sharp - d.tough * 0.4) * 3);
         let dmg = Math.round(raw * tech.dmgMult * rand(0.85, 1.2));
-        const critChance = tech.critBonus + this.clamp(a.perc * 0.035, 0, 0.3);
+        // 暴击：锋锐 + 杀性驱动 (凶悍之剑易出重创)
+        const critChance = tech.critBonus + this.clamp(a.sharp * 0.02 + a.aggr * 0.15, 0, 0.4);
         if (Math.random() < critChance) {
           crit = true;
           dmg = Math.round(dmg * 1.5);
@@ -387,7 +390,7 @@ export class Duel {
       text = `${a.name}施展「${techName}」${parts.length ? '，' + parts.join('，') : ''}。`;
       kind = tech.guard ? 'guard' : tech.heal ? 'heal' : 'recover';
     } else if (dodged && total === 0) {
-      text = `${a.name}施展「${techName}」，${d.name}身法如电，堪堪避过！`;
+      text = `${a.name}施展「${techName}」，${d.name}灵觉入微，堪堪避过！`;
       kind = 'dodge';
     } else {
       const opener = pick(OPENERS[a.element] ?? OPENERS.metal);

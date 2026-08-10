@@ -845,6 +845,10 @@ canvas {
 .duel-side canvas {
   filter: drop-shadow(0 0 14px rgba(217, 178, 106, 0.4));
 }
+/* 对手居右，镜像翻转朝向玩家 (两剑相对) */
+.duel-side.right-side canvas {
+  transform: scaleX(-1);
+}
 /* 前冲：攻方扑向中央 */
 .duel-side.left-side.lunging {
   transform: translateX(78px);

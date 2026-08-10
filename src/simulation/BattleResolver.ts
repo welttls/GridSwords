@@ -12,10 +12,23 @@ export interface BattleResult {
 /**
  * 战斗判定 (瞬间结算)。
  * 伤害 = max(1, 攻击方锋锐 - 防守方坚韧*0.5)
+ * 闪避：两边比感知，守方感知高于攻方则有几率避开来剑 (感知差 → 闪避率)
  * 防守方死亡 → 进攻方获得其 50% 能量
  * 防守方存活 → 进攻方退回原位并损失少量生命 (反震)
  */
 export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): BattleResult {
+  // 感知闪避：守方感知高于攻方，差值决定避开来剑的几率
+  const dodge = Math.max(0, Math.min(0.35, (defender.effectivePerception() - attacker.effectivePerception()) * 0.04 + 0.05));
+  if (Math.random() < dodge) {
+    // 闪避成功：来剑落空，攻方扑空受轻微反震，碰撞精元照耗，守方得后手反击之势
+    attacker.state.energy -= 2;
+    defender.state.energy -= 1;
+    defender.behavior.fightsSurvived++;
+    defender.counterReady = true;
+    attacker.state.hp = Math.max(1, attacker.state.hp - 0.5);
+    return { damage: 0, defenderDied: false, recoil: 0.5 };
+  }
+
   const atk = attacker.effectiveSharpness();
   const def = defender.effectiveToughness();
   let damage = Math.max(1, atk - def * 0.5);

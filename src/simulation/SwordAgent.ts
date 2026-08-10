@@ -247,6 +247,13 @@ export class SwordAgent {
     return t;
   }
 
+  /** 有效感知 (受词条影响) */
+  effectivePerception(): number {
+    let p = this.state.genome.perception;
+    if (this.state.genome.affixes.includes('roam400')) p += 2; // 游历万方
+    return p;
+  }
+
   /** 行动：移动/吃/战斗；目标被阻挡则尝试其他方向，避免卡墙 */
   act(dir: number): void {
     const tryMove = (d: number): boolean => {
