@@ -29,6 +29,8 @@ npm run preview      # 预览生产构建
 
 **改代码后必须**：`npm run build` 通过类型检查 + 构建；涉及 UI 用浏览器实测。
 
+**部署**：已接 **Vercel**(GitHub 仓库自动构建，push 即上线)。`base:'./'` 已配置，子路径托管(GitHub Pages 等)也兼容；静态资源引用一律用 `import.meta.env.BASE_URL` 拼接(见「十、注意事项」)。
+
 ## 三、必须看的文件(按重要性)
 
 | 文件 | 为什么看 |
@@ -126,11 +128,16 @@ src/
 - **响应式**：Pixi 会给 canvas 写内联 `width/height`，CSS 需 `width:auto!important` + `aspect-ratio:1/1`；点击映射用 `rect.width` 归一化。
 - **事件监听**：HUD/Renderer 都实现了 `destroy()`(字段级 handler 解绑)，新 UI 类请保持同款，避免监听器泄漏。
 - **存档迁移**：`SaveManager.load()` 已做字段级迁移(缺 `origin` 补 seed/wild)；新增存档字段时记得同步 `defaultSave()` 与 `exportSave()`。
+- **部署路径**：JS 里引用 public 资源必须 `import.meta.env.BASE_URL + '...'` 拼接(BattleScene 大比背景、swordIcon 剑图)，别写死 `/img/...` 根绝对路径(子路径托管 404)；`src/vite-env.d.ts` 提供 `import.meta.env` 类型。
+- **资源体积**：`bg_1.jpg`(168KB) 由原 `bg_1.png`(4.2MB) 压缩而来——大图先压再入库。
+- **性能/移动端**：Pixi `resolution` 已钳制 `min(dpr, 2)`(手机 3x 背缓冲 1920² 每帧全量重绘开销大)；画布 `touch-action:none`；移动端用 `100dvh` + `env(safe-area-inset-bottom)`。
+- **存档时机**：除 5s 自动 + 事件触发外，`pagehide`/`visibilitychange(hidden)` 会再存一次(iOS `beforeunload` 不可靠)，防关页丢进度。
 
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
 
+- 2026-08-10 v1.7.0：外测发布准备——DPR 钳制 2x + 画布 touch-action、移动端 100dvh/safe-area、pagehide 关闭前自动存档、BattleScene/swordIcon 改 BASE_URL 路径、bg_1.png(4.2MB)→bg_1.jpg(168KB)、favicon、新增 vite-env.d.ts；部署接 Vercel。
 - 2026-08-10 v1.6.2：处理暂缓设计决策——剑尘改为「炼成才得、失败不得」并移除 `sword_dust` 炉材；清理 `randomSwordName`/`BehaviorTag` 死代码；`computeRankUnlocks(0)` 防御、`moveSword` 占用校验、`shrink` 清墙内食物、尸食设硬上限；删除已完成的 `bugfix.md`。
 - 2026-08-10 v1.6.1：新增「八.5 自我维护约定」与本章节；记录无根水身法生效、淬毒门槛调整、僵尸剑意/剑诀/存档类修复、AI_HANDOFF.md 建立。
 

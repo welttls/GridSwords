@@ -41,6 +41,7 @@ body {
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh; /* 移动端地址栏收缩适配（不支持 dvh 的浏览器忽略） */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -50,6 +51,7 @@ body {
 /* 炼剑主界面：约束到视口高度，使「剑域纪事」日志区在内部滚动而非撑长页面 */
 #app.forge-screen {
   height: 100vh;
+  height: 100dvh; /* 移动端地址栏收缩适配 */
   overflow: hidden;
 }
 #app.forge-screen .forge-main {
@@ -113,6 +115,7 @@ canvas {
 .menu-screen {
   justify-content: center;
   min-height: calc(100vh - 36px);
+  min-height: calc(100dvh - 36px);
   padding: 30px;
   text-align: center;
 }
@@ -160,6 +163,7 @@ canvas {
 .embryo-screen {
   padding-top: 40px;
   min-height: calc(100vh - 36px);
+  min-height: calc(100dvh - 36px);
 }
 .embryo-grid {
   display: flex;
@@ -282,6 +286,7 @@ canvas {
   max-width: 100%;
   max-height: 100%;
   aspect-ratio: 1 / 1;
+  touch-action: none; /* 触屏：防画布区域滚动/双击缩放手势干扰 */
 }
 
 .side-panel {
@@ -296,19 +301,23 @@ canvas {
   #app.forge-screen {
     height: auto;
     min-height: 100vh;
+    min-height: 100dvh; /* 移动端地址栏收缩时不跳动 */
     overflow-y: auto; /* 竖排内容超出一屏时可滚动 */
+    padding-bottom: env(safe-area-inset-bottom); /* 底部安全区（iPhone 横条） */
   }
   .forge-main {
     flex-direction: column;
   }
   .canvas-host {
     flex: 0 0 auto;
-    height: 50vh; /* 定高，画布才可等比缩放 */
+    height: 50vh;
+    height: 50dvh; /* 定高，画布才可等比缩放 */
     width: auto;
   }
   .side-panel {
     flex: 0 0 auto;
-    height: 44vh; /* 定高，剑域纪事日志内部滚动 */
+    height: 44vh;
+    height: 44dvh; /* 定高，剑域纪事日志内部滚动 */
     min-height: 240px;
     min-width: 0;
   }

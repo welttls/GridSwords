@@ -348,8 +348,9 @@ export function buildTournament(
       target?.classList.add('selected');
     },
     showDuel: (p, n) => {
-      // 随机水墨战斗背景
-      duelBg.style.backgroundImage = `url(${Math.random() < 0.5 ? '/img/battle/bg_1.png' : '/img/battle/bg_2.jpg'})`;
+      // 随机水墨战斗背景（BASE_URL 拼接：根路径与子路径部署均可用）
+      const bgUrl = `${import.meta.env.BASE_URL}img/battle/${Math.random() < 0.5 ? 'bg_1.jpg' : 'bg_2.jpg'}`;
+      duelBg.style.backgroundImage = `url(${bgUrl})`;
       drawSwordIcon(lCanvas, p.element);
       lName.textContent = p.name;
       lTitle.textContent = p.isPlayer ? '本命剑' : p.title ?? '';

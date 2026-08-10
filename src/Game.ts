@@ -90,18 +90,32 @@ export class Game {
 
   constructor() {
     this.host = document.getElementById('app')!;
+    // 手机 DPR 常为 3：背缓冲达 1920² 且每帧全量重绘，钳到 2x 显著降渲染开销
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.app = new Application({
       width: 640,
       height: 640,
       backgroundColor: 0x0b0e14,
       antialias: true,
-      resolution: window.devicePixelRatio || 1,
+      resolution: dpr,
       autoDensity: true,
     });
     document.body.appendChild(this.canvas);
     this.canvas.style.display = 'none';
     this.save = SaveManager.load();
     this.app.ticker.add(() => this.update());
+    // 关闭/切后台前存档：pagehide 覆盖移动端（iOS 上 beforeunload 不可靠），1s 去重防双触发
+    let lastFlush = 0;
+    const flushSave = () => {
+      const now = Date.now();
+      if (now - lastFlush < 1000) return;
+      lastFlush = now;
+      this.saveGame();
+    };
+    window.addEventListener('pagehide', flushSave);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushSave();
+    });
     // 点击剑意 → 查看灵鉴
     this.canvas.addEventListener('click', (e) => {
       if (this.scene !== 'forge' || !this.world) return;

@@ -1,7 +1,27 @@
 # 《炼剑》SwordForge · 版本更新说明
 
-> 工作流约定：**每次 git 提交都必须在此文件顶部新增一条版本说明**，并在 commit message 中附上版本号。
+> 工作流约定：**每次 git 提交都必须在此文件顶部新增一条版本说明**，并在 commit message 中附上版本号。必须询问用户得到确认回答后才能提交git，用户不明确回复就不提交。
 > 版本号规则：功能新增 → 次版本号 +1（x.y.0）；仅修复/微调 → 修订号 +1（x.y.z）。
+
+---
+
+## v1.7.0 (2026-08-10)
+
+### ⚡ 性能优化（手机外测）
+- **画布 DPR 钳制 2x**：`resolution = min(devicePixelRatio, 2)`，3x 手机背缓冲 1920² → 1280²，每帧全量重绘开销降约 55%，低端机更流畅
+- **画布 `touch-action: none`**：触屏上防画布区域滚动/双击缩放手势干扰
+
+### 📱 移动端适配
+- **`100dvh` + `env(safe-area-inset-bottom)`**：移动端地址栏收缩不再跳动、适配 iPhone 底部横条（`#app`/`forge-screen`/菜单/剑胚/竖排断点全量）
+- `index.html` 加 `viewport-fit=cover`、`theme-color`
+
+### 💾 存档完善
+- **关闭/切后台前自动存档**：`pagehide` + `visibilitychange(hidden)` 监听（iOS 上 `beforeunload` 不可靠），1s 去重，直接关页不再丢最近 5 秒进度
+
+### 🚀 部署准备（Vercel 静态托管）
+- **背景图路径修复**：`BattleScene`/`swordIcon` 改用 `import.meta.env.BASE_URL` 拼接，子路径托管（GitHub Pages 等）不再 404 破图
+- **`bg_1.png` 4.2MB → `bg_1.jpg` 168KB**（1920 宽 JPEG，体积缩小 96%），首屏/大比加载显著提速
+- **favicon**：复用 `swords-emblem.svg`；新增 `src/vite-env.d.ts`（`import.meta.env` 类型声明）
 
 ---
 

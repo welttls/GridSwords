@@ -82,5 +82,5 @@ export function drawSwordIcon(canvas: HTMLCanvasElement, element: Element): void
   img.onerror = () => {
     /* 加载失败则保持程序剑占位 */
   };
-  img.src = `img/swords/katana_${element}.svg`;
+  img.src = `${import.meta.env.BASE_URL}img/swords/katana_${element}.svg`;
 }
