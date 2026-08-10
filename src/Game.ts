@@ -868,7 +868,7 @@ export class Game {
     const winner = data.winner;
     const ranked: RankedSword = {
       id: winner.state.id,
-      name,
+      name: (name || '').trim() || '无名剑', // 防御：空名兜底，防历史数据 undefined 名剑
       element: winner.state.genome.element,
       genome: winner.state.genome,
       score: Math.round(data.score),

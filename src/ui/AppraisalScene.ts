@@ -3,6 +3,7 @@ import type { Genome, Element } from '../types';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { el, clearNode } from '../utils/dom';
 import { drawSwordIcon } from './swordIcon';
+import { toast } from './modals';
 import { ELEMENT_LABEL, ELEMENT_COLOR } from '../simulation/Genetics';
 
 export interface EvoNode {
@@ -25,6 +26,27 @@ export interface AppraisalData {
   totalTicks: number;
 }
 
+/** 鉴定页属性/评分/特质的悬浮说明 */
+const APPRAISE_TIPS: Record<string, string> = {
+  锋锐: '攻伐之力：碰撞伤害 = 锋锐 − 敌方坚固×0.5（至少 1 点）；锋锐亦增暴击之威。锋刃越利，日常维持耗神越多。',
+  坚韧: '防御之体：直接削弱所受伤害，反震亦轻。剑体越沉，行动越耗精元。',
+  速度: '身法：越快则移动耗精元越多，宗门大比中蓄势越快、出手越频。',
+  感知: '灵识：探查范围 = 感知×2 格；与对手比感知，感知高者闪避来剑更易。',
+  杀性: '好战之心：越高越主动寻敌；杀性凶者易出暴击重创。',
+  世代: '血脉传承的代数：本命剑胚为第 1 代，分化衍续则代代递增。',
+  存续: '自诞生起存活的时间占比，越久说明越能自续。',
+  评分: '剑成评分 = 存续×10 + 血脉相承×20 + 剑谱总和×0.5 + 本性殊异(≤15)。越高越是好剑。',
+  血脉相承: '剑谱与最初剑胚的相似程度 ×20。血脉越是承继正脉，愈显纯粹。',
+  剑谱总和: '五行属性（锋锐/坚韧/速度/感知）之和 ×0.5。剑体底子越厚越好。',
+  本性殊异: '十日内体现出的独特本性（特质）越多越高，上限 15：基础 5 + 特质数×5。',
+  斩念成性: '十日内击破 ≥ 3 敌，杀伐果决之证。',
+  吞金成性: '十日内采气 ≥ 25 团，吞吐如意之证。',
+  百炼之体: '剑体始终保持在极高水准（最低剑体 > 60），久战不坠之证。',
+  游历万方: '足迹遍布 ≥ 200 格，身经百炼之证。',
+  静若渊渟: '长时蛰伏（≥200 刻不动），藏锋守拙、不动如山。',
+  雷劫余生: '曾历雷劫（炉府引雷）而仍存续，劫后余生之证。',
+};
+
 /** 剑成鉴定演出 */
 export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalData): void {
   clearNode(host);
@@ -42,20 +64,40 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
   drawSwordIcon(big, data.winner.state.genome.element);
 
   const nameRow = el('div', 'name-row');
+  nameRow.appendChild(el('div', 'name-label', '为你的本命剑命名'));
   const nameInput = el('input', 'name-input') as HTMLInputElement;
-  nameInput.placeholder = '为本命剑命名';
+  nameInput.placeholder = '例：青锋 · 无垢';
   nameInput.maxLength = 12;
   nameRow.appendChild(nameInput);
 
   const tags = el('div', 'tags');
-  for (const t of data.tags) tags.appendChild(el('span', 'tag-badge', `「${t}」`));
+  for (const t of data.tags) {
+    const badge = el('span', 'tag-badge tip', `「${t}」`);
+    const tip = APPRAISE_TIPS[t];
+    if (tip) badge.setAttribute('data-tip', tip);
+    tags.appendChild(badge);
+  }
 
   const scoreBox = el('div', 'score-box');
-  scoreBox.appendChild(el('div', 'score-title', '综合评分'));
+  const scoreTitle = el('div', 'score-title tip', '综合评分');
+  scoreTitle.setAttribute('data-tip', APPRAISE_TIPS['评分'] ?? '');
+  scoreBox.appendChild(scoreTitle);
   scoreBox.appendChild(el('div', 'score-num', `${data.score}`));
   const breakdown = el('div', 'breakdown');
   for (const b of data.breakdown) {
-    breakdown.appendChild(el('div', 'break-line', `${b.label}　+${b.value.toFixed(1)}`));
+    const line = el('div', 'break-line', `${b.label}　+${b.value.toFixed(1)}`);
+    // 评分明细说明：存续动态项 + 固定项
+    if (b.label.startsWith('存续')) {
+      line.classList.add('tip');
+      line.setAttribute('data-tip', '存活越久越能自续：存续占比 ×10。');
+    } else {
+      const tip = APPRAISE_TIPS[b.label];
+      if (tip) {
+        line.classList.add('tip');
+        line.setAttribute('data-tip', tip);
+      }
+    }
+    breakdown.appendChild(line);
   }
   scoreBox.appendChild(breakdown);
 
@@ -67,13 +109,13 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
 
   const stats = el('div', 'final-stats');
   stats.append(
-    statLine('锋锐', data.winner.state.genome.sharpness),
-    statLine('坚韧', data.winner.state.genome.toughness),
-    statLine('速度', data.winner.state.genome.speed),
-    statLine('感知', data.winner.state.genome.perception),
-    statLine('杀性', data.winner.state.genome.aggression),
-    statLine('世代', data.winner.state.generation),
-    statLine('存续', `${Math.min(100, Math.floor((data.winner.state.age / data.totalTicks) * 100))}%`),
+    statLine('锋锐', data.winner.state.genome.sharpness, APPRAISE_TIPS['锋锐']),
+    statLine('坚韧', data.winner.state.genome.toughness, APPRAISE_TIPS['坚韧']),
+    statLine('速度', data.winner.state.genome.speed, APPRAISE_TIPS['速度']),
+    statLine('感知', data.winner.state.genome.perception, APPRAISE_TIPS['感知']),
+    statLine('杀性', data.winner.state.genome.aggression, APPRAISE_TIPS['杀性']),
+    statLine('世代', data.winner.state.generation, APPRAISE_TIPS['世代']),
+    statLine('存续', `${Math.min(100, Math.floor((data.winner.state.age / data.totalTicks) * 100))}%`, APPRAISE_TIPS['存续']),
   );
 
   left.append(big, nameRow, tags, scoreBox, radar, stats);
@@ -108,8 +150,13 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
   const footer = el('div', 'appraisal-footer');
   const submit = el('button', 'btn btn-gold', '命名 · 赴宗门大比');
   submit.addEventListener('click', () => {
-    const name = (nameInput.value || '无名剑').trim();
-    game.finishAppraisal(name || '无名剑');
+    if (submit.disabled) return; // 防重复提交
+    submit.disabled = true;
+    const name = (nameInput.value || '').trim() || '无名剑';
+    toast(`本命剑「${name}」剑成！`);
+    submit.textContent = '剑成，赴试剑台…';
+    // 短暂停留让玩家确认命名生效，再进宗门大比
+    window.setTimeout(() => game.finishAppraisal(name), 900);
   });
   footer.appendChild(submit);
   screen.appendChild(footer);
@@ -117,9 +164,11 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
   host.appendChild(screen);
 }
 
-function statLine(label: string, value: number | string): HTMLElement {
+function statLine(label: string, value: number | string, tip?: string): HTMLElement {
   const row = el('div', 'stat-line');
-  row.append(el('span', 'sl-label', label), el('span', 'sl-value', String(typeof value === 'number' ? value.toFixed(1) : value)));
+  const lab = el('span', 'sl-label' + (tip ? ' tip' : ''), label);
+  if (tip) lab.setAttribute('data-tip', tip);
+  row.append(lab, el('span', 'sl-value', String(typeof value === 'number' ? value.toFixed(1) : value)));
   return row;
 }
 

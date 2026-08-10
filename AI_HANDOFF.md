@@ -75,7 +75,9 @@ src/
 
 **属性语义(v1.6.0 起)**：锋锐=攻击(含暴击)、坚韧=防御、感知=闪避率+视野、速度=蓄条/大比出手(世界内由 `speedBonus` 材料提供移动加速)、杀性=凶性(暴击)、策略=孤狼/合击。
 
-**词条系统**(`AffixDB.ts`，存于 `Genome.affixes` 可遗传)：eat30 吞金 / kill5 斩念 / fight15 百炼 / roam400 游历 / poison 淬毒(rare，锋锐≥8 且杀性≥0.65 且久历) / parasite 寄灵(rare，木行+合击+世代≥5)。判定在 `SwordAgent.recheckAffixes()` 每 tick 参悟。
+**词条系统**(`AffixDB.ts`，存于 `Genome.affixes` 可遗传)：eat30 吞金(采气≥20) / kill5 斩念(击破≥3) / fight15 百炼(历经≥12战) / roam400 游历(足迹≥250) / poison 淬毒(rare，锋锐≥7 且杀性≥0.55 且久历) / parasite 寄灵(rare，木行+合击+世代≥4)。判定在 `SwordAgent.recheckAffixes()` 每 tick 参悟。**v1.8.0 门槛放宽**。
+
+**剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。
 
 ## 六、炉材一览(RecipeDB)
 
@@ -137,6 +139,7 @@ src/
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
 
+- 2026-08-10 v1.8.0：技能系统扩充(五行每行 2 技 + 大比招式上限 5) + 词条门槛放宽(eat30/kill5/fight15/roam400/淬毒/寄灵) + 修复鉴定命名 UI(标签/边框/点击反馈) + finishAppraisal 空名兜底 + 觅食本能 0.7→0.85 与惯性减半(修剑意兜圈/无视食物) + 鉴定页属性/评分/特质说明浮窗。
 - 2026-08-10 v1.7.0：外测发布准备——DPR 钳制 2x + 画布 touch-action、移动端 100dvh/safe-area、pagehide 关闭前自动存档、BattleScene/swordIcon 改 BASE_URL 路径、bg_1.png(4.2MB)→bg_1.jpg(168KB)、favicon、新增 vite-env.d.ts；部署接 Vercel。
 - 2026-08-10 v1.6.2：处理暂缓设计决策——剑尘改为「炼成才得、失败不得」并移除 `sword_dust` 炉材；清理 `randomSwordName`/`BehaviorTag` 死代码；`computeRankUnlocks(0)` 防御、`moveSword` 占用校验、`shrink` 清墙内食物、尸食设硬上限；删除已完成的 `bugfix.md`。
 - 2026-08-10 v1.6.1：新增「八.5 自我维护约定」与本章节；记录无根水身法生效、淬毒门槛调整、僵尸剑意/剑诀/存档类修复、AI_HANDOFF.md 建立。

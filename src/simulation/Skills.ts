@@ -34,33 +34,77 @@ export interface SwordSkill {
   buffTicks?: number;
 }
 
-/** 五行天赋技能 */
+/** 五行天赋技能 (每行 2 技：主技 + 辅技，v1.7.1 扩充让炼剑阶段更丰富) */
+export const ELEMENT_TALENTS: Record<Element, SwordSkill[]> = {
+  metal: [
+    {
+      id: 'skill_swordqi', name: '剑气斩', kind: 'projectile', element: 'metal',
+      desc: '自剑尖推出弧光剑气，横贯剑域，所过之处剑意受创。',
+      energyCost: 18, cooldown: 260, castChance: 0.02, range: 12, dmgMult: 1.8,
+    },
+    {
+      id: 'skill_goldarmor', name: '金罡体', kind: 'buff', element: 'metal',
+      desc: '庚金凝甲，剑体坚不可摧。',
+      energyCost: 14, cooldown: 260, castChance: 0.03, buffDef: 1.2, buffTicks: 240,
+    },
+  ],
+  wood: [
+    {
+      id: 'skill_regrowth', name: '回春术', kind: 'heal', element: 'wood',
+      desc: '以青木之气滋养剑体，回复大量剑体。',
+      energyCost: 20, cooldown: 320, castChance: 0.05, healPct: 0.3,
+    },
+    {
+      id: 'skill_vine', name: '青藤缚', kind: 'projectile', element: 'wood',
+      desc: '青藤缠身，缚敌于数步之外。',
+      energyCost: 16, cooldown: 240, castChance: 0.04, range: 10, dmgMult: 1.2,
+    },
+  ],
+  water: [
+    {
+      id: 'skill_blink', name: '瞬水步', kind: 'teleport', element: 'water',
+      desc: '身化水光瞬移，避敌锋芒。',
+      energyCost: 14, cooldown: 240, castChance: 0.06,
+    },
+    {
+      id: 'skill_tide', name: '惊涛斩', kind: 'line', element: 'water',
+      desc: '剑化惊涛，一线横卷。',
+      energyCost: 20, cooldown: 280, castChance: 0.03, range: 16, dmgMult: 1.8,
+    },
+  ],
+  fire: [
+    {
+      id: 'skill_eruption', name: '焚天爆', kind: 'aoe', element: 'fire',
+      desc: '引燃周身灵气爆散，重创方圆之敌。',
+      energyCost: 22, cooldown: 300, castChance: 0.02, radius: 3, dmgMult: 1.5,
+    },
+    {
+      id: 'skill_blaze', name: '烈焰甲', kind: 'buff', element: 'fire',
+      desc: '烈焰缠身，攻势暴涨。',
+      energyCost: 14, cooldown: 240, castChance: 0.03, buffAtk: 1.25, buffTicks: 220,
+    },
+  ],
+  earth: [
+    {
+      id: 'skill_bulwark', name: '磐石护', kind: 'buff', element: 'earth',
+      desc: '厚土凝甲，剑体坚不可摧。',
+      energyCost: 15, cooldown: 300, castChance: 0.05, buffDef: 1, buffTicks: 240,
+    },
+    {
+      id: 'skill_quake', name: '地脉震', kind: 'aoe', element: 'earth',
+      desc: '地脉震动，方圆皆震。',
+      energyCost: 20, cooldown: 280, castChance: 0.03, radius: 3, dmgMult: 1.4,
+    },
+  ],
+};
+
+/** 每行主天赋技能 (旧引用兼容) */
 export const ELEMENT_SKILLS: Record<Element, SwordSkill> = {
-  metal: {
-    id: 'skill_swordqi', name: '剑气斩', kind: 'projectile', element: 'metal',
-    desc: '自剑尖推出弧光剑气，横贯剑域，所过之处剑意受创。',
-    energyCost: 18, cooldown: 260, castChance: 0.02, range: 12, dmgMult: 1.8,
-  },
-  wood: {
-    id: 'skill_regrowth', name: '回春术', kind: 'heal', element: 'wood',
-    desc: '以青木之气滋养剑体，回复大量剑体。',
-    energyCost: 20, cooldown: 320, castChance: 0.05, healPct: 0.3,
-  },
-  water: {
-    id: 'skill_blink', name: '瞬水步', kind: 'teleport', element: 'water',
-    desc: '身化水光瞬移，避敌锋芒。',
-    energyCost: 14, cooldown: 240, castChance: 0.06,
-  },
-  fire: {
-    id: 'skill_eruption', name: '焚天爆', kind: 'aoe', element: 'fire',
-    desc: '引燃周身灵气爆散，重创方圆之敌。',
-    energyCost: 22, cooldown: 300, castChance: 0.02, radius: 3, dmgMult: 1.5,
-  },
-  earth: {
-    id: 'skill_bulwark', name: '磐石护', kind: 'buff', element: 'earth',
-    desc: '厚土凝甲，剑体坚不可摧。',
-    energyCost: 15, cooldown: 300, castChance: 0.05, buffDef: 1, buffTicks: 240,
-  },
+  metal: ELEMENT_TALENTS.metal[0],
+  wood: ELEMENT_TALENTS.wood[0],
+  water: ELEMENT_TALENTS.water[0],
+  fire: ELEMENT_TALENTS.fire[0],
+  earth: ELEMENT_TALENTS.earth[0],
 };
 
 /** 词条衍生技能 */
@@ -97,9 +141,9 @@ export const AFFIX_SKILLS: Record<string, SwordSkill> = {
   },
 };
 
-/** 某剑意可用的技能 (五行天赋 + 词条) */
+/** 某剑意可用的技能 (五行天赋主技+辅技 + 词条) */
 export function skillsFor(element: Element, affixes: string[]): SwordSkill[] {
-  const list: SwordSkill[] = [ELEMENT_SKILLS[element]];
+  const list: SwordSkill[] = [...ELEMENT_TALENTS[element]];
   for (const a of affixes) {
     const s = AFFIX_SKILLS[a];
     if (s) list.push(s);

@@ -175,7 +175,7 @@ export class SwordAgent {
     const food = this.nearestTarget('food');
     if (food) {
       const closeness = clamp(1 - food.dist / (MAX_PERCEPTION_RANGE + 1), 0.35, 1);
-      bias[this.dirTo(food.dx, food.dy)] += hunger * 0.7 * closeness;
+      bias[this.dirTo(food.dx, food.dy)] += hunger * 0.85 * closeness;
     }
 
     // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力)
@@ -218,9 +218,10 @@ export class SwordAgent {
     const bias = this.instinctBias(input);
     out = out.map((v, i) => v + bias[i]);
     // 惯性：延续上次方向、折返略罚，打破感知/本能对冲造成的两格来回
+    // v1.8.1：系数减半(0.06→0.03 / 0.12→0.06)，防随机剑心偏好滚雪球导致直线穿行/无视食物
     if (this.lastMoveDir >= 0) {
-      out[this.lastMoveDir] += 0.06;
-      out[this.lastMoveDir ^ 1] -= 0.12;
+      out[this.lastMoveDir] += 0.03;
+      out[this.lastMoveDir ^ 1] -= 0.06;
     }
 
     let best = -1;
@@ -470,11 +471,11 @@ export class SwordAgent {
         rareToast: rare ? `✨ 悟得稀有词条「${affixName(id)}」！` : undefined,
       });
     };
-    if (b.eatCount >= 30) add('eat30', false);
-    if (b.killCount >= 5) add('kill5', false);
-    if (b.attackCount + b.fightsSurvived >= 20) add('fight15', false);
-    if (b.cellsVisited >= 400) add('roam400', false);
-    if (g.sharpness >= 8 && g.aggression >= 0.65 && this.state.age >= 2000) add('poison', true); // 淬毒：高锋锐+高杀性+久历杀伐
-    if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 5) add('parasite', true);
+    if (b.eatCount >= 20) add('eat30', false); // v1.7.1：词条门槛放宽，炼剑阶段更易悟得
+    if (b.killCount >= 3) add('kill5', false);
+    if (b.attackCount + b.fightsSurvived >= 12) add('fight15', false);
+    if (b.cellsVisited >= 250) add('roam400', false);
+    if (g.sharpness >= 7 && g.aggression >= 0.55 && this.state.age >= 1500) add('poison', true); // 淬毒：高锋锐+高杀性+久历杀伐
+    if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 4) add('parasite', true);
   }
 }

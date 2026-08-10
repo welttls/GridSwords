@@ -1,5 +1,5 @@
 import type { Element, Genome } from '../types';
-import { ELEMENT_SKILLS, AFFIX_SKILLS } from './Skills';
+import { ELEMENT_TALENTS, AFFIX_SKILLS } from './Skills';
 import type { SwordSkill } from './Skills';
 import { ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
@@ -121,8 +121,8 @@ export function buildTechniques(genome: Genome, element: Element): DuelTechnique
   const affixes = g.affixes ?? [];
   const maxHp = Math.round(70 + g.toughness * 8);
 
-  // —— 五行天赋剑技 (此剑意天生剑技，必得) ——
-  const elementTech = skillToTechnique(ELEMENT_SKILLS[element], maxHp);
+  // —— 五行天赋剑技 (每行 2 技：主 + 辅，此剑意天生剑技，必得) ——
+  const elementTechs = ELEMENT_TALENTS[element].map((s) => skillToTechnique(s, maxHp));
 
   // —— 属性招式 (按属性门槛自然生成) ——
   const statTechs: DuelTechnique[] = [];
@@ -142,9 +142,9 @@ export function buildTechniques(genome: Genome, element: Element): DuelTechnique
   // 通用基础招
   const base: DuelTechnique = { id: 'strike', name: '锋行', desc: '凝神一剑，直取中路。', kind: 'attack', dmgMult: 1.0, hits: 1, critBonus: 0, energyCost: 12, source: '本能' };
 
-  // 组成：基础 + 五行天赋 + 词条(优先) + 属性(补位)，最多 4 招
-  const ordered = [base, elementTech, ...affixTechs, ...statTechs];
-  return ordered.slice(0, 4);
+  // 组成：基础 + 五行天赋(2) + 词条(优先) + 属性(补位)，最多 5 招 (选招面板动态生成)
+  const ordered = [base, ...elementTechs, ...affixTechs, ...statTechs];
+  return ordered.slice(0, 5);
 }
 
 /** 招式 → 特效类型 (技能 id 优先，kind 兜底) */

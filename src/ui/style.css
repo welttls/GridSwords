@@ -576,10 +576,17 @@ canvas {
 .name-row {
   width: 100%;
 }
+.name-label {
+  color: var(--gold);
+  font-size: 14px;
+  letter-spacing: 4px;
+  text-align: center;
+  margin-bottom: 8px;
+}
 .name-input {
   width: 100%;
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(217, 178, 106, 0.6);
   border-radius: 6px;
   color: var(--ink);
   font-family: var(--serif);
@@ -588,9 +595,14 @@ canvas {
   padding: 10px 14px;
   text-align: center;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.name-input::placeholder {
+  color: rgba(230, 225, 213, 0.38);
 }
 .name-input:focus {
   border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(217, 178, 106, 0.22);
 }
 .tags {
   display: flex;
