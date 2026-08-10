@@ -1,5 +1,7 @@
 import type { World } from '../simulation/World';
+import type { Element } from '../types';
 import { MAX_DAYS, SHICHEN_NAMES, TICKS_PER_SHICHEN } from '../constants';
+import { ELEMENT_COLOR, ELEMENT_LABEL } from '../simulation/Genetics';
 import { el, clearNode } from '../utils/dom';
 import { eventBus, EVT, type LogMessage } from '../utils/eventBus';
 import { toast } from './modals';
@@ -25,7 +27,13 @@ export class HUD {
   private speedEl!: HTMLElement;
   private materialBtn!: HTMLButtonElement;
   private feedBtn!: HTMLButtonElement;
+  private tideBtn!: HTMLButtonElement;
+  private reseedBtn!: HTMLButtonElement;
   private chartEls: { label: string; color: string; bars: HTMLElement[] }[] = [];
+  /** 剑域构成分类 (v1.10.0)：五行文本元素 + 本命/外来 */
+  private compElems!: { key: Element; el: HTMLElement }[];
+  private compSeedEl!: HTMLElement;
+  private compWildEl!: HTMLElement;
   /** 日志筛选：all=全部 / important=仅重要 */
   private logFilter: 'all' | 'important' = 'all';
 
@@ -72,6 +80,28 @@ export class HUD {
     topbar.append(title, stats, speedEl);
     this.host.appendChild(topbar);
 
+    // —— 剑域构成分类条 (v1.10.0)：五行 + 本命/外来 ——
+    const comp = el('div', 'composition-bar');
+    const ELEMS: Element[] = ['metal', 'wood', 'water', 'fire', 'earth'];
+    this.compElems = [];
+    for (const e of ELEMS) {
+      const item = el('span', 'comp-item');
+      const dot = el('span', 'comp-dot');
+      dot.style.background = `#${ELEMENT_COLOR[e].toString(16).padStart(6, '0')}`;
+      const label = el('span', 'comp-text', `${ELEMENT_LABEL[e]} 0`);
+      item.append(dot, label);
+      comp.appendChild(item);
+      this.compElems.push({ key: e, el: label });
+    }
+    comp.appendChild(el('span', 'comp-sep', '·'));
+    const seedItem = el('span', 'comp-item');
+    seedItem.append(el('span', 'comp-dot comp-dot-seed'), (this.compSeedEl = el('span', 'comp-text', '本命 0')));
+    comp.appendChild(seedItem);
+    const wildItem = el('span', 'comp-item');
+    wildItem.append(el('span', 'comp-dot comp-dot-wild'), (this.compWildEl = el('span', 'comp-text', '外来 0')));
+    comp.appendChild(wildItem);
+    this.host.appendChild(comp);
+
     // —— 主体 ——
     const main = el('div', 'forge-main');
     const canvasHost = el('div', 'canvas-host');
@@ -113,7 +143,7 @@ export class HUD {
 
     panel.append(histWrap, logWrap);
 
-    // 底栏：投食 + 炉材
+    // 底栏：投食 + 炉材 + 剑潮 + 重种本命 (v1.11.0)
     const footer = el('div', 'forge-footer');
     const feedBtn = el('button', 'btn btn-ghost', '投食') as HTMLButtonElement;
     feedBtn.id = 'feed-btn';
@@ -121,8 +151,14 @@ export class HUD {
     const materialBtn = el('button', 'btn btn-gold', '炉材') as HTMLButtonElement;
     materialBtn.id = 'material-btn';
     this.materialBtn = materialBtn;
+    const tideBtn = el('button', 'btn btn-ghost', '剑潮') as HTMLButtonElement;
+    tideBtn.id = 'tide-btn';
+    this.tideBtn = tideBtn;
+    const reseedBtn = el('button', 'btn btn-ghost', '重种本命') as HTMLButtonElement;
+    reseedBtn.id = 'reseed-btn';
+    this.reseedBtn = reseedBtn;
     const hint = el('span', 'hint', '投食随时可施 · 炉材以次数计');
-    footer.append(feedBtn, materialBtn, hint);
+    footer.append(feedBtn, materialBtn, tideBtn, reseedBtn, hint);
 
     main.append(canvasHost, panel);
     this.host.append(main, footer);
@@ -170,6 +206,18 @@ export class HUD {
 
     // 直方图 (分 10 桶)
     const all = [...world.swords.values()];
+
+    // 剑域构成分类统计 (v1.10.0)：五行 + 本命/外来
+    const counts: Record<Element, number> = { metal: 0, wood: 0, water: 0, fire: 0, earth: 0 };
+    let seedN = 0;
+    for (const s of all) {
+      counts[s.state.genome.element]++;
+      if (s.state.origin === 'seed') seedN++;
+    }
+    for (const c of this.compElems) c.el.textContent = `${ELEMENT_LABEL[c.key]} ${counts[c.key]}`;
+    this.compSeedEl.textContent = `本命 ${seedN}`;
+    this.compWildEl.textContent = `外来 ${all.length - seedN}`;
+
     for (const c of this.chartEls) {
       const buckets = new Array(10).fill(0);
       for (const s of all) {
@@ -240,5 +288,15 @@ export class HUD {
 
   onMaterialClick(fn: () => void): void {
     this.materialBtn.addEventListener('click', fn);
+  }
+
+  /** 剑潮偏好按钮 (v1.11.0) */
+  onTideClick(fn: () => void): void {
+    this.tideBtn.addEventListener('click', fn);
+  }
+
+  /** 手动重种本命按钮 (v1.11.0) */
+  onReseedClick(fn: () => void): void {
+    this.reseedBtn.addEventListener('click', fn);
   }
 }

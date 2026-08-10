@@ -1,6 +1,6 @@
 import type { Genome, BehaviorStats } from '../types';
 import { SimpleNN } from './NeuralNet';
-import { World } from './World';
+import type { World } from './World'; // v1.9.2：仅类型位使用，type-only 打破与 World 的 ESM 循环依赖
 import { resolveBattle } from './BattleResolver';
 import { mutateGenome, genomeChanged, ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
@@ -14,6 +14,7 @@ import {
   HP_REGEN_PER_TICK,
   DECISION_THRESHOLD,
   MAX_PERCEPTION_RANGE,
+  INSTINCT_RANGE,
   GENE_MAX,
   MUTATION_STRENGTH,
 } from '../constants';
@@ -137,7 +138,7 @@ export class SwordAgent {
   /** 全盘扫描：寻找最近的指定目标 (曼哈顿距离) */
   nearestTarget(type: 'food' | 'sword'): { dx: number; dy: number; dist: number } | null {
     const hunger = this.hungerLevel();
-    const baseRange = clamp(Math.round(this.state.genome.perception * 2), 2, 10);
+    const baseRange = clamp(Math.round(this.state.genome.perception * 2), 2, INSTINCT_RANGE);
     const huntBonus = type === 'food' && hunger > 0.6 ? 10 : 0; // 极度饥饿时扩大搜寻半径
     const range = Math.min(MAX_PERCEPTION_RANGE, baseRange + huntBonus);
     const pos = this.state.position;
@@ -418,6 +419,8 @@ export class SwordAgent {
       if (Math.random() < strikeChance) {
         this.state.hp -= 25;
         this.state.energy -= 12;
+        // 雷劫余生：历雷击而仍存续 → 标记个体经历 (鉴定标签据此判定，v1.9.1)
+        if (this.state.hp > 0 && this.state.energy > 0) this.state.survivedThunder = true;
         eventBus.emit(EVT.THUNDER, { x: this.state.position.x, y: this.state.position.y });
       }
     }
@@ -478,8 +481,8 @@ export class SwordAgent {
     };
     if (b.eatCount >= 20) add('eat30', false); // v1.7.1：词条门槛放宽，炼剑阶段更易悟得
     if (b.killCount >= 3) add('kill5', false);
-    if (b.attackCount + b.fightsSurvived >= 12) add('fight15', false);
-    if (b.cellsVisited >= 250) add('roam400', false);
+    if (b.attackCount + b.fightsSurvived >= 25) add('fight15', false); // v1.11.0：历经百炼（25 战）更稀有
+    if (b.cellsVisited >= 350 && b.cellsVisited / Math.max(1, this.state.age) >= 0.35) add('roam400', false); // v1.11.0：足迹≥350 且游走不绝（密度≥0.35/tick），苟活久不动者不悟
     // 淬毒：高锋锐+高杀性+久历杀伐(存续≥2500tick≈第3日 且 历经≥15战，防凶剑躺赢自动悟毒)
     if (g.sharpness >= 7 && g.aggression >= 0.55 && this.state.age >= 2500 && b.attackCount + b.fightsSurvived >= 15) add('poison', true);
     if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 4) add('parasite', true);

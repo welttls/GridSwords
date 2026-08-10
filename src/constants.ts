@@ -56,6 +56,12 @@ export const EMERGENCE_MIN_GEN = 6;    // 且血脉世代达到此深度，方�
 
 // ===== 感知 =====
 export const MAX_PERCEPTION_RANGE = 20; // 感知基因*2 的最大视野
+/** 本能行动半径上限 (感知=NN 视野 20 / 本能=行动半径 10，有意差异：防高感知剑跨图行动) */
+export const INSTINCT_RANGE = 10;
+
+// ===== 技能 =====
+/** buff 技能每 tick 施放概率 (刻意低于 castChance：防 buff 过期立刻重放、保留增益空窗，见 tryCastSkill) */
+export const BUFF_CAST_CHANCE = 0.01;
 
 // ===== 宗门大比 =====
 export const ARENA_SIZE = 15;

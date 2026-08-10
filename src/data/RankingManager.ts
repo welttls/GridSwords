@@ -5,6 +5,8 @@ export interface RankResult {
   rank: number;
   newUnlocks: MaterialUnlock[];
   inTop: boolean;
+  /** 排序截断后的新榜单 (TOP_N) */
+  list: RankedSword[];
 }
 
 /**
@@ -35,6 +37,6 @@ export class RankingManager {
     const rank = list.findIndex((s) => s.id === sword.id) + 1;
     const inTop = rank > 0;
     const newUnlocks = inTop ? RankingManager.evaluateUnlocks(rank, unlocked) : [];
-    return { rank, newUnlocks, inTop };
+    return { rank, newUnlocks, inTop, list };
   }
 }

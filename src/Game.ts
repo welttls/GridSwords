@@ -6,7 +6,7 @@ import { SimpleNN } from './simulation/NeuralNet';
 import { WorldRenderer } from './ui/Renderer';
 import { HUD } from './ui/HUD';
 import { buildMenu, buildEmbryoSelect } from './ui/MenuScene';
-import { openFurnacePanel, openDailyDropPanel, type DailyDropKind } from './ui/DayPanel';
+import { openFurnacePanel, openDailyDropPanel, openTidePanel, type DailyDropKind } from './ui/DayPanel';
 import { buildAppraisal, type AppraisalData, type EvoNode } from './ui/AppraisalScene';
 import { buildTournament, type BattleUI, type OpponentInfo } from './ui/BattleScene';
 import { openSwordDetail } from './ui/SwordDetail';
@@ -77,6 +77,8 @@ export class Game {
   emergenceTargetId: string | null = null;
   /** 本命血脉断绝后是否已弹过「重新种下剑胚」的提示 */
   seedExtinctPrompted = false;
+  /** v1.11.0：上次「本命血脉已绝」弹窗所在日 (同日重种又死不再弹，避免弹窗疲劳) */
+  private lastReseedPromptDay = -1;
   private tickAccumulator = 0;
   private battleAccumulator = 0;
 
@@ -262,9 +264,11 @@ export class Game {
     this.save.feedDropped = 0;
 
     this.save.activeRun = true;
-    this.save.embryoElement = element;
     this.save.embryoGenome = this.embryoGenome;
     this.save.day = 1;
+    // v1.10.0：新局重置剑潮记忆 (本局内语义)
+    this.save.dailyDropKind = null;
+    this.save.dailyDropLocked = false;
     this.save.tickCounter = 0;
 
     this.buildForgeScene();
@@ -384,6 +388,8 @@ export class Game {
     this.hud?.destroy?.();
     this.hud = new HUD(this.host);
     this.hud.onMaterialClick(() => this.openFurnacePanel());
+    this.hud.onTideClick(() => this.openTidePanel()); // v1.11.0
+    this.hud.onReseedClick(() => this.tryReseed()); // v1.11.0
     this.hud.focusHandler = (id) => this.focusSword(id);
     this.refreshHudControls();
     this.mountCanvas(this.hud.canvasHost);
@@ -479,13 +485,15 @@ export class Game {
   private promptReseed(): void {
     const w = this.world;
     if (!w) return;
+    this.lastReseedPromptDay = w.config.currentDay; // v1.11.0：记录弹窗日，同日不再重复弹
     const body = el('div', 'reseed-modal');
     body.appendChild(el('p', '', '本命血脉已然断绝，剑域之中再无你的剑胚一脉。'));
     body.appendChild(el('p', 'reseed-sub', '是否重新种下一道本命剑胚，再续凡铁？'));
     const btnRow = el('div', 'modal-actions');
+    const later = el('button', 'btn btn-ghost', '暂不重种');
     const no = el('button', 'btn btn-ghost', '罢了');
     const yes = el('button', 'btn btn-gold', '重新种下');
-    btnRow.append(no, yes);
+    btnRow.append(later, no, yes);
     body.appendChild(btnRow);
 
     const closeAndResume = () => {
@@ -495,12 +503,23 @@ export class Game {
       }
     };
     const overlay = openModal('本命血脉已绝', body, {
-      width: 480,
+      width: 540,
       onClose: closeAndResume,
     });
     yes.addEventListener('click', () => {
       overlay.remove();
       this.reseedLineage();
+      closeAndResume();
+    });
+    later.addEventListener('click', () => {
+      overlay.remove();
+      // v1.11.0：暂不重种 → 本局不再自动弹，HUD「重种本命」可随时手动种回
+      this.seedExtinctPrompted = true;
+      eventBus.emit(EVT.LOG, {
+        text: '你决定暂不重种本命血脉，剑域唯外来剑意自谋生路。',
+        important: true,
+      });
+      this.saveGame();
       closeAndResume();
     });
     no.addEventListener('click', () => {
@@ -570,6 +589,30 @@ export class Game {
     toast('🌱 本命剑胚重新种下');
     this.saveGame();
   }
+
+  /** HUD 手动重种本命 (v1.11.0)：本命血脉已绝时可调 */
+  tryReseed(): void {
+    if (this.scene !== 'forge' || !this.world) return;
+    if (!this.seedLineageExtinct()) {
+      toast('本命血脉尚在，无需重种。');
+      return;
+    }
+    this.reseedLineage();
+  }
+
+  /** 剑潮偏好面板 (v1.11.0)：随时修改本局剑潮选择/免弹窗，不立即投放 */
+  openTidePanel(): void {
+    if (this.scene !== 'forge') return;
+    this.paused = true;
+    this.refreshHudControls();
+    openTidePanel(this, () => {
+      if (this.scene === 'forge') {
+        this.paused = false;
+        this.refreshHudControls();
+      }
+    });
+  }
+
   togglePause(): void {
     this.paused = !this.paused;
     this.refreshHudControls();
@@ -595,6 +638,11 @@ export class Game {
   /** 每日子时剑潮投放 (玩家选择或默许天意) */
   private openDailyDropPanelForDay(day: number): void {
     if (this.scene !== 'forge') return;
+    // v1.10.0：勾选「本局一直用此选择」后不再弹窗，直接按上次选择投放
+    if (this.save.dailyDropLocked && this.save.dailyDropKind) {
+      this.chooseDailyDrop(this.save.dailyDropKind);
+      return;
+    }
     this.paused = true;
     this.refreshHudControls();
     openDailyDropPanel(this, day, () => {
@@ -608,6 +656,7 @@ export class Game {
   chooseDailyDrop(kind: DailyDropKind): void {
     const w = this.world;
     if (!w) return;
+    this.save.dailyDropKind = kind; // v1.10.0：记住本局选择 (超时沿用/免弹窗投放依据)
     const day = w.config.currentDay;
     const range = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
     let spawned = 0;
@@ -652,6 +701,7 @@ export class Game {
     else if (kind === 'none') eventBus.emit(EVT.LOG, `第${day}日子时：你未投剑意，剑域唯余余波自涌。`);
     else eventBus.emit(EVT.LOG, `第${day}日子时：剑域已无立足之地，${label}竟无处落脚。`); // P3：网格饱和时也给出反馈
     if (this.hud && this.world) this.hud.update(this.world);
+    this.saveGame(); // v1.10.0：剑潮选择即时落盘 (防刷新丢失记忆/勾选)
   }
 
   /** 手动投食 (随时可施，每日限量) */
@@ -728,7 +778,12 @@ export class Game {
           }
         }
         // 本命血脉断绝：提示玩家是否重新种下剑胚
-        if (!this.tribulationEnded && !this.seedExtinctPrompted && this.seedLineageExtinct()) {
+        if (
+          !this.tribulationEnded &&
+          !this.seedExtinctPrompted &&
+          this.world.config.currentDay !== this.lastReseedPromptDay && // v1.11.0：同日不重复弹
+          this.seedLineageExtinct()
+        ) {
           this.seedExtinctPrompted = true;
           eventBus.emit(EVT.LOG, {
             text: `第${this.world.config.currentDay}日：本命血脉已然断绝，剑域之中再无剑胚一脉。`,
@@ -835,8 +890,7 @@ export class Game {
       this.save.finishedGames++;
       this.save.activeRun = false;
       this.saveGame();
-      toast('天劫之下剑意尽灭，十日内一无所获。');
-      this.showMenu();
+      this.showDefeatModal();
       return;
     }
     this.appraisalData = data;
@@ -853,6 +907,39 @@ export class Game {
     };
     this.saveGame();
     this.showAppraisal(data);
+  }
+
+  /** 天劫失败弹窗：本局简况 + 快捷重开 (v1.10.0) */
+  private showDefeatModal(): void {
+    const w = this.world;
+    const hist = w?.populationHistory ?? [];
+    const peak = hist.length > 0 ? Math.max(...hist) : 0;
+    let lastDay = 1;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      if (hist[i] > 0) {
+        lastDay = Math.min(MAX_DAYS, Math.floor(i / (w?.config.dayTickLimit ?? TICKS_PER_DAY)) + 1);
+        break;
+      }
+    }
+    const body = el('div', 'defeat-modal');
+    body.appendChild(el('p', '', '十日内一无所获，天劫之下剑意尽灭。'));
+    body.appendChild(el('p', 'defeat-summary', `剑域曾至多 ${peak} 道剑意并存，第 ${lastDay} 日终归寂灭。`));
+    body.appendChild(el('p', 'defeat-note', '剑意尽灭、无遗蜕可拾——剑尘需「炼成」方得，下次炼成自动淬入剑胚。'));
+    const btnRow = el('div', 'modal-actions');
+    const toMenu = el('button', 'btn btn-ghost', '返回主菜单');
+    const again = el('button', 'btn btn-gold', '重新炼剑');
+    btnRow.append(toMenu, again);
+    body.appendChild(btnRow);
+    const close = () => this.showMenu();
+    toMenu.addEventListener('click', () => {
+      overlay.remove();
+      close();
+    });
+    again.addEventListener('click', () => {
+      overlay.remove();
+      this.showEmbryoSelect();
+    });
+    const overlay = openModal('天劫之下 · 剑意尽灭', body, { width: 460, onClose: close });
   }
 
   // ================= 剑成鉴定 =================
@@ -898,9 +985,9 @@ export class Game {
     if (b.killCount >= 3) tags.push('斩念成性');
     if (b.eatCount >= 20) tags.push('吞金成性'); // 与 eat30 词条门槛一致
     if (b.minHp > 60) tags.push('百炼之体');
-    if (b.cellsVisited >= 250) tags.push('游历万方'); // 与 roam400 词条门槛一致
+    if (b.cellsVisited >= 350 && b.cellsVisited / Math.max(1, s.state.age) >= 0.35) tags.push('游历万方'); // 与 roam400 词条门槛一致 (v1.11.0：足迹+游走密度)
     if (b.waitCount >= 200 && s.state.age > 2000) tags.push('静若渊渟');
-    if (this.world?.modifiers.thunderstorm) tags.push('雷劫余生');
+    if (s.state.survivedThunder) tags.push('雷劫余生'); // v1.9.1：个体经历 (曾历雷击而存续)，不再按世界级开关全员标注
     return tags.slice(0, 3);
   }
 
@@ -910,14 +997,23 @@ export class Game {
     const chain: { id: string; generation: number; day: number; element: Element }[] = [];
     let id = winnerId;
     let guard = 0;
+    let chainRootId = '';
     while (id && guard++ < 2000) {
       const info = w.lineage.get(id);
       if (!info) break;
       chain.push({ id, generation: info.generation, day: info.day, element: info.element });
+      chainRootId = id;
       id = info.parentId;
     }
-    const rootElement = this.embryoGenome?.element ?? chain[chain.length - 1]?.element ?? 'metal';
-    chain.push({ id: w.rootId ?? 'root', generation: 1, day: 0, element: rootElement });
+    // v1.11.0：血统溯源——链根为本命剑胚才拼接胚源；
+    // 若本命剑是外来剑意（剑潮投放的独立血脉），其树根即外来根，勿拼接成本命后代误导血缘
+    const rootIsSeed = chainRootId === w.rootId;
+    const rootElement = rootIsSeed
+      ? (this.embryoGenome?.element ?? chain[chain.length - 1]?.element ?? 'metal')
+      : chain[chain.length - 1]?.element ?? 'metal';
+    if (rootIsSeed) {
+      chain.push({ id: w.rootId ?? 'root', generation: 1, day: 0, element: rootElement });
+    }
     chain.reverse();
 
     const childrenCount = (parentId: string): number => {
@@ -929,7 +1025,7 @@ export class Game {
     return chain.map((n, i) => {
       const isWinner = i === chain.length - 1;
       let label = '血脉延续';
-      if (i === 0) label = '凡铁剑意';
+      if (i === 0) label = rootIsSeed ? '凡铁剑意' : '外来剑意';
       else if (n.element !== chain[i - 1].element) label = '血脉蜕变';
       if (isWinner) label = '本命剑';
       return { id: n.id, generation: n.generation, day: n.day, label, children: childrenCount(n.id), element: n.element, isWinner };
@@ -964,14 +1060,11 @@ export class Game {
     this.save.hasSwordDust = true; // 炼成之剑，遗蜕为尘（失败不得，见 endTribulation）
     this.save.finishedGames++;
     this.save.activeRun = false;
-    this.save.history.push(ranked);
-    // P0-5：截断结果必须重新赋值，否则 history 无限增长
-    this.save.history = this.save.history
-      .sort((a, b) => b.score - a.score || b.dayReached - a.dayReached)
-      .slice(0, RankingManager.TOP_N);
+    // v1.9.2：复用 RankingManager.submit (插入+排序+截断+排名+解锁计算)，消除内联重复
+    const res = RankingManager.submit(ranked, this.save.history, this.save.unlockedMaterialIds);
+    this.save.history = res.list;
     this.save.bestScore = Math.max(this.save.bestScore, ranked.score);
-
-    const rank = this.save.history.findIndex((s) => s.id === ranked.id) + 1;
+    const rank = res.rank;
     this.applyUnlocks(this.computeRankUnlocks(rank));
     // 持久化大比阶段：刷新后可回到试剑台
     const playerState = JSON.parse(JSON.stringify(winner.state)) as SwordState;
@@ -1172,7 +1265,6 @@ export class Game {
       hasBeatenFirstOpponent: this.save.hasBeatenFirstOpponent,
       hasSwordDust: this.save.hasSwordDust,
       activeRun: this.scene === 'forge' && !!this.world,
-      embryoElement: this.embryoGenome?.element ?? null,
       embryoGenome: this.embryoGenome,
       day: this.world?.config.currentDay ?? 1,
       tickCounter: this.world?.tickCounter ?? 0,

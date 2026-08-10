@@ -1,7 +1,7 @@
 import type { World } from './World';
 import type { SwordAgent } from './SwordAgent';
 import type { Element, Genome } from '../types';
-import { MAX_HP } from '../constants';
+import { MAX_HP, BUFF_CAST_CHANCE } from '../constants';
 import { eventBus, EVT } from '../utils/eventBus';
 import { clamp, randomInt } from '../utils/mathUtils';
 
@@ -192,7 +192,7 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
           enemy.dist <= 8 &&
           !(st.buffAtkTicks ?? 0 > 0) &&
           !(st.buffDefTicks ?? 0 > 0) &&
-          Math.random() < 0.01;
+          Math.random() < BUFF_CAST_CHANCE;
         break;
     }
     if (!want) continue;

@@ -420,9 +420,13 @@ canvas {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 12px 18px;
   margin-top: 12px;
   padding: 10px 6px;
+}
+.forge-footer .btn {
+  min-width: 0; /* v1.11.0：四按钮可收缩换行，窄屏不溢出 */
 }
 .hint {
   color: var(--ink-dim);
@@ -1779,4 +1783,104 @@ canvas {
   border: 5px solid transparent;
   border-top-color: var(--gold);
   z-index: 60;
+}
+
+/* ============ 剑域构成分类条 (v1.10.0) ============ */
+.composition-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 4px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--ink-dim);
+  letter-spacing: 1px;
+}
+.comp-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.comp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.comp-dot-seed {
+  background: var(--gold);
+  box-shadow: 0 0 5px rgba(217, 178, 106, 0.6);
+}
+.comp-dot-wild {
+  background: #9aa4b5;
+}
+.comp-sep {
+  opacity: 0.35;
+}
+.comp-text {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============ 剑潮弹窗：倒计时 / 免弹窗勾选 / 选中高亮 (v1.10.0) ============ */
+.drop-countdown {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--gold-dim);
+  letter-spacing: 1px;
+}
+.drop-lock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+.drop-lock-box {
+  accent-color: var(--gold);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.material-card.selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold) inset;
+  background: rgba(217, 178, 106, 0.12);
+}
+.btn.selected {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* ============ 天劫失败弹窗 (v1.10.0) ============ */
+.defeat-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px 22px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.8;
+  letter-spacing: 1px;
+}
+.defeat-summary {
+  color: var(--ink);
+  font-size: 14px;
+}
+.defeat-note {
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+.defeat-modal .modal-actions {
+  margin-top: 4px;
 }

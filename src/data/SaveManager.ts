@@ -32,7 +32,6 @@ export interface GameSave {
   hasSwordDust: boolean;
   // —— 当前局 (支持中断续玩) ——
   activeRun: boolean;
-  embryoElement: Element | null;
   embryoGenome: Genome | null;
   day: number;
   tickCounter: number;
@@ -40,6 +39,10 @@ export interface GameSave {
   materialCounts: Record<string, number>;
   /** 当日已投食团数 */
   feedDropped: number;
+  /** 本局剑潮选择 (v1.10.0)：上次选择，弹窗超时/关闭时沿用；null=本局未选过 */
+  dailyDropKind?: 'mild' | 'tide' | 'fierce' | 'auto' | 'none' | null;
+  /** 本局免剑潮弹窗 (v1.10.0)：勾选后每日自动按上次选择投放 */
+  dailyDropLocked?: boolean;
   swords: SwordState[];
   rootId: string | null;
   maxGeneration: number;
@@ -67,12 +70,13 @@ export function defaultSave(): GameSave {
     hasBeatenFirstOpponent: false,
     hasSwordDust: false,
     activeRun: false,
-    embryoElement: null,
     embryoGenome: null,
     day: 1,
     tickCounter: 0,
     materialCounts: {},
     feedDropped: 0,
+    dailyDropKind: null,
+    dailyDropLocked: false,
     swords: [],
     rootId: null,
     maxGeneration: 1,

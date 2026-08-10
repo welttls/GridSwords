@@ -32,6 +32,8 @@ export interface SwordState {
   buffAtkTicks?: number;
   buffDefMult?: number;
   buffDefTicks?: number;
+  /** 经历天雷 (雷劫液) 而存续：鉴定「雷劫余生」标签判定 (v1.9.1) */
+  survivedThunder?: boolean;
   /** 行为统计 (续档恢复用，随剑意序列化) */
   behavior?: BehaviorStats;
 }

@@ -55,7 +55,7 @@ export function randomGenome(element: Element): Genome {
 
 /** 生成一道游离剑意 (每日剑潮投放)，强度随天数抬升 */
 export function randomWildGenome(day: number): Genome {
-  const scale = 1 + day * 0.18; // 越往后越凶
+  const scale = 1 + day * 0.12; // 越往后越凶 (v1.9.1：放缓增速，第10天不再大量顶格同质化)
   const g: Genome = {
     sharpness: clamp(1.5 + Math.random() * 4 * scale, GENE_MIN, GENE_MAX),
     toughness: clamp(1.5 + Math.random() * 4 * scale, GENE_MIN, GENE_MAX),
@@ -81,10 +81,10 @@ export function randomMildGenome(day: number): Genome {
 
 /** 天外凶剑 (凶潮)：高锋锐、高杀性、求战 */
 export function randomFierceGenome(day: number): Genome {
-  const g = randomWildGenome(day + 1);
-  g.sharpness = clamp(g.sharpness + 2, GENE_MIN, GENE_MAX);
+  const g = randomWildGenome(day);
+  g.sharpness = clamp(g.sharpness + 1.5, GENE_MIN, GENE_MAX);
   g.aggression = clamp(g.aggression + 0.3, 0, 1);
-  g.toughness = clamp(g.toughness + 1, GENE_MIN, GENE_MAX);
+  g.toughness = clamp(g.toughness + 0.8, GENE_MIN, GENE_MAX);
   g.strategy = clamp(0.2 + Math.random() * 0.6, 0, 1);
   return g;
 }
