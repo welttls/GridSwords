@@ -807,6 +807,22 @@ canvas {
   border-radius: 10px;
   overflow: hidden;
 }
+/* 水墨战斗背景 */
+.duel-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 30%;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.duel-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.38));
+}
 .duel-ground {
   position: absolute;
   left: 8%;

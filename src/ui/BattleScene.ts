@@ -93,6 +93,9 @@ export function buildTournament(
   // ===== 决斗场景 (左右双剑 + 场地) =====
   const stage = el('div', 'duel-stage hidden');
   const field = el('div', 'duel-field');
+  // 水墨战斗背景层 (开战时随机选一张)
+  const duelBg = el('div', 'duel-bg');
+  field.appendChild(duelBg);
   const left = el('div', 'duel-side left-side');
   const lCanvas = document.createElement('canvas');
   lCanvas.width = 96;
@@ -332,6 +335,8 @@ export function buildTournament(
       target?.classList.add('selected');
     },
     showDuel: (p, n) => {
+      // 随机水墨战斗背景
+      duelBg.style.backgroundImage = `url(${Math.random() < 0.5 ? '/img/battle/bg_1.png' : '/img/battle/bg_2.jpg'})`;
       drawSwordIcon(lCanvas, p.element);
       lName.textContent = p.name;
       lTitle.textContent = p.isPlayer ? '本命剑' : p.title ?? '';

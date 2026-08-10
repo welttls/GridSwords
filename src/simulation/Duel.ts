@@ -342,6 +342,8 @@ export class Duel {
     const ev: DuelEvent[] = [];
     const techName = tech.name;
     const fx = techFx(tech);
+    // 回复/护盾类为辅助招式：不造成伤害，只增益自身
+    const isSupport = tech.kind === 'recover' || tech.kind === 'guard';
     let total = 0;
     let crit = false;
     let dodged = false;
@@ -349,40 +351,53 @@ export class Duel {
     const cost = a.art === 'quick' ? Math.ceil(tech.energyCost * 0.7) : tech.energyCost;
     if (a.energy >= cost) a.energy -= cost;
 
-    for (let h = 0; h < tech.hits; h++) {
-      let dodge = this.clamp((d.speed - a.speed) * 0.05, 0, 0.3);
-      if (d.art === 'agile') dodge += 0.12;
-      if (dodge > 0 && Math.random() < dodge) {
-        dodged = true;
-        continue;
+    if (!isSupport) {
+      for (let h = 0; h < tech.hits; h++) {
+        let dodge = this.clamp((d.speed - a.speed) * 0.05, 0, 0.3);
+        if (d.art === 'agile') dodge += 0.12;
+        if (dodge > 0 && Math.random() < dodge) {
+          dodged = true;
+          continue;
+        }
+        const raw = Math.max(2, (a.sharp - d.tough * 0.4) * 3);
+        let dmg = Math.round(raw * tech.dmgMult * rand(0.85, 1.2));
+        const critChance = tech.critBonus + this.clamp(a.perc * 0.035, 0, 0.3);
+        if (Math.random() < critChance) {
+          crit = true;
+          dmg = Math.round(dmg * 1.5);
+        }
+        if (d.guarded) {
+          dmg = Math.max(1, Math.round(dmg * 0.45));
+          d.guarded = false;
+        }
+        if (tech.selfDmg) a.hp -= tech.selfDmg;
+        d.hp -= dmg;
+        total += dmg;
       }
-      const raw = Math.max(2, (a.sharp - d.tough * 0.4) * 3);
-      let dmg = Math.round(raw * tech.dmgMult * rand(0.85, 1.2));
-      const critChance = tech.critBonus + this.clamp(a.perc * 0.035, 0, 0.3);
-      if (Math.random() < critChance) {
-        crit = true;
-        dmg = Math.round(dmg * 1.5);
-      }
-      if (d.guarded) {
-        dmg = Math.max(1, Math.round(dmg * 0.45));
-        d.guarded = false;
-      }
-      if (tech.selfDmg) a.hp -= tech.selfDmg;
-      d.hp -= dmg;
-      total += dmg;
     }
 
+    // —— 文本 ——
     let text: string;
-    if (dodged && total === 0) {
+    let kind: DuelEvent['kind'];
+    if (isSupport) {
+      const parts: string[] = [];
+      if (tech.heal) parts.push(`剑体回复 ${tech.heal} 点`);
+      if (tech.recoverEnergy) parts.push(`精元回复 ${tech.recoverEnergy} 点`);
+      if (tech.guard) parts.push('剑势内敛，严阵以待');
+      text = `${a.name}施展「${techName}」${parts.length ? '，' + parts.join('，') : ''}。`;
+      kind = tech.guard ? 'guard' : tech.heal ? 'heal' : 'recover';
+    } else if (dodged && total === 0) {
       text = `${a.name}施展「${techName}」，${d.name}身法如电，堪堪避过！`;
+      kind = 'dodge';
     } else {
       const opener = pick(OPENERS[a.element] ?? OPENERS.metal);
       const hit = pick(HIT_LINES);
       text = `${a.name}${opener}，使出「${techName}」${hit}，对${d.name}造成 ${total} 点剑伤！`;
       if (crit) text = `⚡ 剑意通神！${a.name}「${techName}」${pick(CRIT_LINES)}，对${d.name}造成 ${total} 点剑伤！`;
+      kind = crit ? 'crit' : 'atk';
     }
-    let kind: DuelEvent['kind'] = crit ? 'crit' : 'atk';
 
+    // —— 效果：攻击类附加效果 ——
     if (tech.poisonTicks && d.poison === 0) {
       d.poison = tech.poisonTicks;
       d.poisonDmg = tech.poisonDmg ?? 4;
@@ -395,21 +410,10 @@ export class Duel {
       text += ` 寄灵夺舍，反噬${d.name}灵机，剑体回复 ${gained} 点！`;
       kind = 'drain';
     }
-    if (tech.heal) {
-      a.hp = Math.min(a.maxHp, a.hp + tech.heal);
-      text += ` ${a.name}凝神回气，剑体回复 ${tech.heal} 点。`;
-      kind = 'heal';
-    }
-    if (tech.recoverEnergy) {
-      a.energy = Math.min(a.maxEnergy, a.energy + tech.recoverEnergy);
-      text += ` ${a.name}吞纳灵气，精元回复 ${tech.recoverEnergy} 点。`;
-      kind = 'recover';
-    }
-    if (tech.guard) {
-      a.guarded = true;
-      text += ` ${a.name}剑势内敛，严阵以待（下次受击大幅减免）。`;
-      kind = 'guard';
-    }
+    // —— 效果：回复/护盾 (文本已在 support 分支构造) ——
+    if (tech.heal) a.hp = Math.min(a.maxHp, a.hp + tech.heal);
+    if (tech.recoverEnergy) a.energy = Math.min(a.maxEnergy, a.energy + tech.recoverEnergy);
+    if (tech.guard) a.guarded = true;
 
     this.checkDeath(d, ev);
     ev.push({ text, kind, actor: a.side, dmg: total, techName, fx });
