@@ -27,6 +27,11 @@ export interface SwordState {
   /** 中毒状态 (淬毒词条，运行时) */
   poisonDmg?: number;
   poisonTicks?: number;
+  /** 战斗 buff (技能)：攻/防倍率与剩余 tick */
+  buffAtkMult?: number;
+  buffAtkTicks?: number;
+  buffDefMult?: number;
+  buffDefTicks?: number;
 }
 
 /** 行为标签 (用于剑成鉴定与评分) */

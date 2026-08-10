@@ -5,7 +5,7 @@ import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, ELEMENT_COLOR } from '../simulation/Genetics';
 import { affixName } from '../data/AffixDB';
 import type { SwordArt } from '../data/SwordArts';
-import type { DuelEvent } from '../simulation/Duel';
+import type { DuelEvent, DuelTechnique, DuelSideId } from '../simulation/Duel';
 
 export interface OpponentInfo {
   id: string;
@@ -26,21 +26,32 @@ export interface DuelFighterView {
   title?: string;
 }
 
+export interface FighterBar {
+  hp: number;
+  maxHp: number;
+  energy: number;
+  ap: number;
+}
+
 export interface BattleUI {
   getOpponent: () => string | null;
   getArt: () => string | null;
   setResult: (html: string, ok?: boolean) => void;
   setRunning: (running: boolean) => void;
   selectOpponent: (id: string) => void;
-  /** 展开决斗舞台 (左右双剑) */
+  /** 展开决斗舞台 (左右双剑 + 场景) */
   showDuel: (p: DuelFighterView, n: DuelFighterView) => void;
-  /** 每帧推送事件与双方状态 */
-  pushEvents: (events: DuelEvent[], p: { hp: number; energy: number; ap: number }, n: { hp: number; energy: number; ap: number }) => void;
+  /** 每帧推送事件(含前冲/大字/粒子动画)与双方状态 */
+  pushEvents: (events: DuelEvent[], p: FighterBar, n: FighterBar) => void;
+  /** 玩家行动条满：展示招式选择 */
+  showTechniqueChoice: (techs: DuelTechnique[], onChoose: (id: string) => void) => void;
+  /** 隐藏招式选择 (出招后) */
+  hideTechniqueChoice: () => void;
 }
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
-/** 宗门大比 · 试剑台 (半即时决斗 + 文字 MUD) */
+/** 宗门大比 · 试剑台 (场景决斗：前冲 + 碰撞粒子 + 大字招式 + 玩家选招) */
 export function buildTournament(
   host: HTMLElement,
   game: Game,
@@ -79,9 +90,10 @@ export function buildTournament(
   ctrlRow.append(el('span', 'ctrl-label', '剑诀'), artSel, startBtn);
   screen.appendChild(ctrlRow);
 
-  // ===== 决斗舞台 (左右双剑) =====
+  // ===== 决斗场景 (左右双剑 + 场地) =====
   const stage = el('div', 'duel-stage hidden');
-  const left = el('div', 'duel-side');
+  const field = el('div', 'duel-field');
+  const left = el('div', 'duel-side left-side');
   const lCanvas = document.createElement('canvas');
   lCanvas.width = 96;
   lCanvas.height = 96;
@@ -93,17 +105,14 @@ export function buildTournament(
   const lEnergyFill = el('div', 'duel-fill');
   const lAp = el('div', 'duel-bar ap');
   const lApFill = el('div', 'duel-fill');
+  const lHpText = el('div', 'duel-hp-text');
   lHp.appendChild(lHpFill);
   lEnergy.appendChild(lEnergyFill);
   lAp.appendChild(lApFill);
   const lAffix = el('div', 'duel-affixes');
-  left.append(lCanvas, lName, lTitle, lHp, lEnergy, lAp, lAffix);
+  left.append(lCanvas, lName, lTitle, lHp, lEnergy, lAp, lHpText, lAffix);
 
-  const middle = el('div', 'duel-mid');
-  middle.appendChild(el('div', 'duel-vs', '⚔'));
-  middle.appendChild(el('div', 'duel-vs-text', '剑 试 高 下'));
-
-  const right = el('div', 'duel-side');
+  const right = el('div', 'duel-side right-side');
   const rCanvas = document.createElement('canvas');
   rCanvas.width = 96;
   rCanvas.height = 96;
@@ -115,18 +124,27 @@ export function buildTournament(
   const rEnergyFill = el('div', 'duel-fill');
   const rAp = el('div', 'duel-bar ap');
   const rApFill = el('div', 'duel-fill');
+  const rHpText = el('div', 'duel-hp-text');
   rHp.appendChild(rHpFill);
   rEnergy.appendChild(rEnergyFill);
   rAp.appendChild(rApFill);
   const rAffix = el('div', 'duel-affixes');
-  right.append(rCanvas, rName, rTitle, rHp, rEnergy, rAp, rAffix);
+  right.append(rCanvas, rName, rTitle, rHp, rEnergy, rAp, rHpText, rAffix);
 
-  const duelTop = el('div', 'duel-top');
-  duelTop.append(left, middle, right);
+  // 场景：地面 + 两侧剑气蓄势
+  field.append(left, el('div', 'duel-ground'), right);
+
+  // 大招大字
+  const techTitle = el('div', 'duel-tech-title hidden');
+
+  // 玩家招式选择
+  const choicePanel = el('div', 'duel-choice hidden');
+  choicePanel.appendChild(el('div', 'duel-choice-hint', '行动条已满 — 请选择招式'));
+  const choiceBtns = el('div', 'duel-choice-btns');
 
   const logBox = el('div', 'duel-log');
   const resultBox = el('div', 'duel-result hidden');
-  stage.append(duelTop, resultBox, logBox);
+  stage.append(techTitle, field, choicePanel, resultBox, logBox);
 
   // ===== 对手选择 =====
   const oppPanel = el('div', 'opponent-panel');
@@ -164,6 +182,23 @@ export function buildTournament(
   screen.appendChild(back);
 
   host.appendChild(screen);
+
+  /** 碰撞粒子 (DOM) */
+  function burst(cx: number, cy: number, color: string, count = 12): void {
+    for (let i = 0; i < count; i++) {
+      const p = el('div', 'duel-particle');
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 40 + Math.random() * 90;
+      p.style.background = color;
+      p.style.left = `${cx}px`;
+      p.style.top = `${cy}px`;
+      p.style.setProperty('--dx', `${Math.cos(ang) * sp}px`);
+      p.style.setProperty('--dy', `${Math.sin(ang) * sp}px`);
+      p.style.setProperty('--ps', `${0.5 + Math.random() * 0.5}s`);
+      field.appendChild(p);
+      window.setTimeout(() => p.remove(), 900);
+    }
+  }
 
   const ui: BattleUI = {
     getOpponent: () => selectedId,
@@ -217,17 +252,65 @@ export function buildTournament(
         line.textContent = e.text;
         logBox.appendChild(line);
         logBox.scrollTop = logBox.scrollHeight;
+
+        // 招式动画：前冲 + 大字 + 碰撞粒子
+        if (e.techName) {
+          const attacker = e.actor === 'player' ? left : right;
+          const defender = e.actor === 'player' ? right : left;
+          const color = e.actor === 'player' ? '#ffd76a' : '#c48aff';
+          // 大字
+          techTitle.classList.remove('hidden');
+          techTitle.textContent = `${e.techName}！`;
+          techTitle.classList.remove('show');
+          void techTitle.offsetWidth; // 重置动画
+          techTitle.classList.add('show');
+          window.setTimeout(() => techTitle.classList.add('hidden'), 950);
+          // 前冲
+          attacker.classList.add('lunging');
+          window.setTimeout(() => {
+            attacker.classList.remove('lunging');
+            // 碰撞粒子 (落在守方位置)
+            const dCanvas = defender.querySelector('canvas');
+            if (dCanvas) {
+              const r = dCanvas.getBoundingClientRect();
+              const f = field.getBoundingClientRect();
+              burst(r.left - f.left + r.width / 2, r.top - f.top + r.height / 2, color, e.kind === 'crit' ? 20 : 12);
+            }
+            defender.classList.add('shaken');
+            window.setTimeout(() => defender.classList.remove('shaken'), 350);
+          }, 260);
+        }
       }
       const fill = (bar: HTMLElement, ratio: number, color: string) => {
         bar.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`;
         bar.style.background = color;
       };
-      fill(lHpFill, p.hp / 100, p.hp > 50 ? '#6fd08a' : p.hp > 25 ? '#ffc24a' : '#ff4a4a');
+      fill(lHpFill, p.hp / p.maxHp, p.hp / p.maxHp > 0.5 ? '#6fd08a' : p.hp / p.maxHp > 0.25 ? '#ffc24a' : '#ff4a4a');
       fill(lEnergyFill, p.energy / 100, '#5aa9ff');
-      fill(lApFill, p.ap / 20, '#ffd76a');
-      fill(rHpFill, n.hp / 100, n.hp > 50 ? '#6fd08a' : n.hp > 25 ? '#ffc24a' : '#ff4a4a');
+      fill(lApFill, p.ap / 100, '#ffd76a');
+      fill(rHpFill, n.hp / n.maxHp, n.hp / n.maxHp > 0.5 ? '#6fd08a' : n.hp / n.maxHp > 0.25 ? '#ffc24a' : '#ff4a4a');
       fill(rEnergyFill, n.energy / 100, '#5aa9ff');
-      fill(rApFill, n.ap / 20, '#ffd76a');
+      fill(rApFill, n.ap / 100, '#ffd76a');
+      lHpText.textContent = `${Math.max(0, Math.round(p.hp))} / ${p.maxHp}`;
+      rHpText.textContent = `${Math.max(0, Math.round(n.hp))} / ${n.maxHp}`;
+    },
+    showTechniqueChoice: (techs, onChoose) => {
+      clearNode(choiceBtns);
+      for (const t of techs) {
+        const btn = el('button', 'btn duel-tech-btn', '');
+        btn.append(
+          el('span', 'duel-tech-name', `${t.name} · ${t.source}`),
+          el('span', 'duel-tech-desc', t.desc),
+        );
+        btn.addEventListener('click', () => onChoose(t.id));
+        choiceBtns.appendChild(btn);
+      }
+      choicePanel.appendChild(choiceBtns);
+      choicePanel.classList.remove('hidden');
+    },
+    hideTechniqueChoice: () => {
+      choicePanel.classList.add('hidden');
+      clearNode(choiceBtns);
     },
   };
 

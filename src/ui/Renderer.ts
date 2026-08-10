@@ -2,7 +2,7 @@ import { Container, Graphics } from 'pixi.js';
 import type { World } from '../simulation/World';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { ELEMENT_COLOR } from '../simulation/Genetics';
-import { eventBus, EVT, type ParticleEvent } from '../utils/eventBus';
+import { eventBus, EVT, type ParticleEvent, type SkillVisual } from '../utils/eventBus';
 
 const FOOD_COLOR = 0xffd76a;
 const WALL_COLOR = 0xff5a2a;
@@ -19,6 +19,20 @@ interface Particle {
   baseR: number;
 }
 
+/** 技能特效 (持续帧动画) */
+interface Effect {
+  kind: 'proj' | 'ring' | 'beam';
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+  color: number;
+  life: number;
+  maxLife: number;
+  /** 半径/射程 (格) */
+  radius: number;
+}
+
 /**
  * PixiJS 世界渲染器：绘制剑域网格、庚金之气、火墙、混沌区与剑意。
  * 每帧重建一个 Graphics，可承载数百剑意；另含粒子层播放碰撞/分化/陨落等效果。
@@ -26,6 +40,7 @@ interface Particle {
 export class WorldRenderer {
   readonly container: Container;
   private g: Graphics;
+  private eg: Graphics;
   private bg: Graphics;
   private cell: number;
   private width: number;
@@ -34,7 +49,16 @@ export class WorldRenderer {
   private selectedId: string | null = null;
   private particles: Particle[] = [];
   private particleLayer: Container;
+  private effects: Effect[] = [];
+  private effectLayer: Container;
   private lastTick = 0;
+  /** 绑定的事件处理器 (供 off 精确解绑) */
+  private hBattleHit = (e: ParticleEvent) => this.onBattleHit(e);
+  private hSplit = (e: ParticleEvent) => this.onSplit(e);
+  private hDeath = (e: ParticleEvent) => this.onDeath(e);
+  private hEat = (e: ParticleEvent) => this.onEat(e);
+  private hThunder = (e: ParticleEvent) => this.onThunder(e);
+  private hSkill = (e: SkillVisual) => this.onSkill(e);
 
   constructor(container: Container, width: number, height: number, cell: number, showBars = false) {
     this.container = container;
@@ -44,26 +68,34 @@ export class WorldRenderer {
     this.showBars = showBars;
     this.bg = new Graphics();
     this.g = new Graphics();
+    this.eg = new Graphics();
     this.particleLayer = new Container();
-    container.addChild(this.bg, this.g, this.particleLayer);
+    this.effectLayer = new Container();
+    this.effectLayer.addChild(this.eg);
+    container.addChild(this.bg, this.g, this.particleLayer, this.effectLayer);
     this.bg.beginFill(0x0c1017);
     this.bg.drawRect(0, 0, width * cell, height * cell);
     this.bg.endFill();
 
-    // 监听粒子事件 (渲染端专用，headless 无副作用)
-    eventBus.on(EVT.BATTLE_HIT, (e) => this.onBattleHit(e as ParticleEvent));
-    eventBus.on(EVT.SPLIT, (e) => this.onSplit(e as ParticleEvent));
-    eventBus.on(EVT.DEATH, (e) => this.onDeath(e as ParticleEvent));
-    eventBus.on(EVT.EAT, (e) => this.onEat(e as ParticleEvent));
-    eventBus.on(EVT.THUNDER, (e) => this.onThunder(e as ParticleEvent));
+    // 监听粒子/技能事件 (渲染端专用，headless 无副作用)
+    eventBus.on(EVT.BATTLE_HIT, this.hBattleHit);
+    eventBus.on(EVT.SPLIT, this.hSplit);
+    eventBus.on(EVT.DEATH, this.hDeath);
+    eventBus.on(EVT.EAT, this.hEat);
+    eventBus.on(EVT.THUNDER, this.hThunder);
+    eventBus.on(EVT.SKILL, this.hSkill);
   }
 
   destroy(): void {
-    eventBus.off(EVT.BATTLE_HIT, (e) => this.onBattleHit(e as ParticleEvent));
-    eventBus.off(EVT.SPLIT, (e) => this.onSplit(e as ParticleEvent));
-    eventBus.off(EVT.DEATH, (e) => this.onDeath(e as ParticleEvent));
-    eventBus.off(EVT.EAT, (e) => this.onEat(e as ParticleEvent));
-    eventBus.off(EVT.THUNDER, (e) => this.onThunder(e as ParticleEvent));
+    eventBus.off(EVT.BATTLE_HIT, this.hBattleHit);
+    eventBus.off(EVT.SPLIT, this.hSplit);
+    eventBus.off(EVT.DEATH, this.hDeath);
+    eventBus.off(EVT.EAT, this.hEat);
+    eventBus.off(EVT.THUNDER, this.hThunder);
+    eventBus.off(EVT.SKILL, this.hSkill);
+    // 清理残留粒子
+    for (const p of this.particles) this.particleLayer.removeChild(p.g);
+    this.particles.length = 0;
   }
 
   /** 设置选中剑意 (绘制高亮框) */
@@ -89,6 +121,7 @@ export class WorldRenderer {
       p.g.alpha = Math.min(1, t * 1.4);
       p.g.scale.set(Math.max(0.05, t));
     }
+    this.updateEffects(dt);
   }
 
   private spawnBurst(x: number, y: number, color: number, count: number, speed: number, size: number, life: number): void {
@@ -140,6 +173,99 @@ export class WorldRenderer {
   private onThunder(e: ParticleEvent): void {
     this.spawnBurst(e.x, e.y, 0x9ac8ff, 14, this.cell * 8, this.cell * 0.2, 0.35);
     this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 6, this.cell * 0.16, 0.2);
+  }
+
+  // ===== 技能特效 =====
+  private onSkill(e: SkillVisual): void {
+    const c = this.elementColor(e.element);
+    switch (e.kind) {
+      case 'projectile': {
+        const dx = e.dx ?? 1;
+        const dy = e.dy ?? 0;
+        this.effects.push({ kind: 'proj', x: e.x, y: e.y, dx, dy, color: c, life: 2, maxLife: 2, radius: 0 });
+        this.spawnBurst(e.x, e.y, 0xffffff, 4, this.cell * 3, this.cell * 0.1, 0.25);
+        break;
+      }
+      case 'aoe': {
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xff6a4a, life: 0.6, maxLife: 0.6, radius: e.radius ?? 3 });
+        this.spawnBurst(e.x, e.y, 0xff6a4a, 16, this.cell * 6, this.cell * 0.18, 0.6);
+        break;
+      }
+      case 'line': {
+        const dx = e.dx ?? 1;
+        const dy = e.dy ?? 0;
+        this.effects.push({ kind: 'beam', x: e.x, y: e.y, dx, dy, color: 0x9ac8ff, life: 0.3, maxLife: 0.3, radius: 20 });
+        this.spawnBurst(e.x, e.y, 0x9ac8ff, 8, this.cell * 5, this.cell * 0.14, 0.4);
+        break;
+      }
+      case 'teleport': {
+        this.spawnBurst(e.x, e.y, 0x5aa9ff, 14, this.cell * 6, this.cell * 0.18, 0.55);
+        this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 5, this.cell * 0.12, 0.35);
+        break;
+      }
+      case 'heal': {
+        this.spawnBurst(e.x, e.y, 0x7ddb8f, 14, this.cell * 4, this.cell * 0.16, 0.9);
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0x7ddb8f, life: 0.5, maxLife: 0.5, radius: 1.6 });
+        break;
+      }
+      case 'buff': {
+        this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffd76a, life: 0.7, maxLife: 0.7, radius: 2 });
+        break;
+      }
+    }
+  }
+
+  /** 推进特效 (弹道移动 / 生命周期) */
+  private updateEffects(dt: number): void {
+    const cell = this.cell;
+    for (let i = this.effects.length - 1; i >= 0; i--) {
+      const e = this.effects[i];
+      e.life -= dt;
+      if (e.life <= 0) {
+        this.effects.splice(i, 1);
+        continue;
+      }
+      if (e.kind === 'proj') {
+        e.x += e.dx * 26 * dt;
+        e.y += e.dy * 26 * dt;
+        if (e.x < 0 || e.x >= this.width || e.y < 0 || e.y >= this.height) {
+          this.effects.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  /** 每帧绘制特效到 eg */
+  private drawEffects(): void {
+    const eg = this.eg;
+    eg.clear();
+    const cell = this.cell;
+    for (const e of this.effects) {
+      const t = e.life / e.maxLife;
+      const cx = (e.x + 0.5) * cell;
+      const cy = (e.y + 0.5) * cell;
+      if (e.kind === 'proj') {
+        // 剑气弹道：亮核 + 拖尾
+        eg.lineStyle(cell * 0.5, e.color, 0.9 * t);
+        eg.moveTo(cx - e.dx * cell * 2, cy - e.dy * cell * 2);
+        eg.lineTo(cx, cy);
+        eg.lineStyle(0);
+        eg.beginFill(0xffffff, Math.min(1, t * 1.6));
+        eg.drawCircle(cx, cy, cell * 0.3);
+        eg.endFill();
+      } else if (e.kind === 'ring') {
+        const r = e.radius * cell * (1 - t);
+        eg.lineStyle(cell * 0.22, e.color, Math.min(1, t * 1.5));
+        eg.drawCircle(cx, cy, Math.max(1, r));
+        eg.lineStyle(0);
+      } else if (e.kind === 'beam') {
+        const len = e.radius * cell * t;
+        eg.lineStyle(cell * 0.35, e.color, Math.min(1, t * 2.4));
+        eg.moveTo(cx, cy);
+        eg.lineTo(cx + e.dx * len, cy + e.dy * len);
+        eg.lineStyle(0);
+      }
+    }
   }
 
   render(world: World, tick: number): void {
@@ -213,6 +339,9 @@ export class WorldRenderer {
     g.lineStyle(1.5, 0x9a8cff, 0.5);
     g.drawRect(b.minX * cell, b.minY * cell, (b.maxX - b.minX + 1) * cell, (b.maxY - b.minY + 1) * cell);
     g.lineStyle(0);
+
+    // 技能特效 (弹道/环形/光束)
+    this.drawEffects();
   }
 
   private drawSword(g: Graphics, s: SwordAgent, tick: number): void {

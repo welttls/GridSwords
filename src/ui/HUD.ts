@@ -2,6 +2,7 @@ import type { World } from '../simulation/World';
 import { MAX_DAYS, SHICHEN_NAMES, TICKS_PER_SHICHEN } from '../constants';
 import { el, clearNode } from '../utils/dom';
 import { eventBus, EVT, type LogMessage } from '../utils/eventBus';
+import { toast } from './modals';
 
 const GENES = [
   { key: 'sharpness', label: '锋锐', color: '#8ab4ff' },
@@ -191,6 +192,10 @@ export class HUD {
     if (this.logFilter === 'important' && !important) line.style.display = 'none';
     while (this.logContainer.children.length > 500) {
       this.logContainer.lastElementChild?.remove();
+    }
+    // 稀有词条 toast (UI 层处理)
+    if (typeof msg !== 'string' && msg.rareToast) {
+      toast(msg.rareToast);
     }
   }
 

@@ -291,18 +291,25 @@ canvas {
   flex-direction: column;
   gap: 12px;
 }
-/* 窄屏 (手机 / 小窗)：竖排，画布在上、侧栏在下 */
+/* 窄屏 (手机 / 小窗)：竖排，画布在上、侧栏在下，允许页面滚动 */
 @media (max-width: 900px) {
+  #app.forge-screen {
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto; /* 竖排内容超出一屏时可滚动 */
+  }
   .forge-main {
     flex-direction: column;
   }
   .canvas-host {
     flex: 0 0 auto;
-    height: 52vh; /* 定高，画布才可等比缩放 */
+    height: 50vh; /* 定高，画布才可等比缩放 */
     width: auto;
   }
   .side-panel {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
+    height: 44vh; /* 定高，剑域纪事日志内部滚动 */
+    min-height: 240px;
     min-width: 0;
   }
 }
@@ -768,7 +775,7 @@ canvas {
   justify-content: center;
 }
 
-/* —— 决斗舞台 (左右双剑 · 半即时) —— */
+/* —— 决斗场景 (左右双剑 · 半即时 · 选招) —— */
 .duel-stage {
   flex: 1;
   min-width: 560px;
@@ -781,26 +788,107 @@ canvas {
     radial-gradient(600px 260px at 50% 0%, rgba(217, 178, 106, 0.08), transparent 70%),
     var(--panel);
   padding: 18px;
+  position: relative;
 }
 .duel-stage.hidden {
   display: none;
 }
-.duel-top {
+/* 场地：两剑分立，中央留白 */
+.duel-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  position: relative;
+  min-height: 210px;
+  background:
+    radial-gradient(220px 90px at 50% 82%, rgba(217, 178, 106, 0.1), transparent 75%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.32));
+  border: 1px solid rgba(230, 225, 213, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.duel-ground {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 22px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(217, 178, 106, 0.5), transparent);
 }
 .duel-side {
-  flex: 1;
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 5px;
   min-width: 0;
+  padding: 10px 18px;
+  transition: transform 0.26s cubic-bezier(0.3, 0.9, 0.4, 1.1);
 }
 .duel-side canvas {
   filter: drop-shadow(0 0 14px rgba(217, 178, 106, 0.4));
+}
+/* 前冲：攻方扑向中央 */
+.duel-side.left-side.lunging {
+  transform: translateX(78px);
+}
+.duel-side.right-side.lunging {
+  transform: translateX(-78px);
+}
+/* 受击：守方震晃 */
+.duel-side.shaken {
+  animation: duelShake 0.32s ease;
+}
+@keyframes duelShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+/* 碰撞粒子 */
+.duel-particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  animation: duelBurst var(--ps, 0.6s) ease-out forwards;
+}
+@keyframes duelBurst {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx, 0), var(--dy, 0)) scale(0.2); opacity: 0; }
+}
+/* 大招大字 */
+.duel-tech-title {
+  position: absolute;
+  top: 14%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 46px;
+  letter-spacing: 12px;
+  color: var(--gold);
+  text-shadow: 0 0 24px rgba(217, 178, 106, 0.8), 0 0 60px rgba(217, 178, 106, 0.4);
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0;
+  transform: scale(0.4);
+}
+.duel-tech-title.show {
+  animation: techPop 0.95s cubic-bezier(0.2, 0.9, 0.3, 1.1) forwards;
+}
+.duel-tech-title.hidden {
+  display: none;
+}
+@keyframes techPop {
+  0% { opacity: 0; transform: scale(0.4); }
+  18% { opacity: 1; transform: scale(1.12); }
+  30% { transform: scale(1); }
+  78% { opacity: 1; }
+  100% { opacity: 0; transform: scale(0.9) translateY(-8px); }
 }
 .duel-name {
   font-size: 17px;
@@ -828,12 +916,18 @@ canvas {
 .duel-bar.ap {
   height: 5px;
   margin-top: 2px;
+  border-color: rgba(255, 215, 106, 0.35);
 }
 .duel-fill {
   height: 100%;
   width: 100%;
   background: #6fd08a;
   transition: width 0.12s ease;
+}
+.duel-hp-text {
+  font-size: 12px;
+  color: var(--ink-dim);
+  letter-spacing: 1px;
 }
 .duel-affixes {
   display: flex;
@@ -849,31 +943,54 @@ canvas {
   border-radius: 10px;
   padding: 1px 7px;
 }
-.duel-mid {
+/* 玩家选招 */
+.duel-choice {
+  border: 1px solid rgba(217, 178, 106, 0.5);
+  border-radius: 10px;
+  background: rgba(217, 178, 106, 0.06);
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
+  gap: 8px;
 }
-.duel-vs {
-  font-size: 42px;
+.duel-choice.hidden {
+  display: none;
+}
+.duel-choice-hint {
   color: var(--gold);
-  animation: pulse 1.6s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 0.85; }
-  50% { transform: scale(1.12); opacity: 1; }
-}
-.duel-vs-text {
-  font-size: 12px;
   letter-spacing: 4px;
-  color: var(--gold-dim);
+  font-size: 14px;
+  text-align: center;
+}
+.duel-choice-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+.duel-tech-btn {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 200px;
+  padding: 10px 14px;
+  text-align: left;
+}
+.duel-tech-name {
+  color: #ffd76a;
+  letter-spacing: 2px;
+  font-size: 15px;
+}
+.duel-tech-desc {
+  color: var(--ink-dim);
+  font-size: 12px;
+  letter-spacing: 1px;
 }
 .duel-log {
   flex: 1;
-  min-height: 150px;
-  max-height: 300px;
+  min-height: 130px;
+  max-height: 260px;
   overflow-y: auto;
   border: 1px solid rgba(230, 225, 213, 0.12);
   border-radius: 8px;
@@ -898,11 +1015,11 @@ canvas {
 .duel-log-line.crit {
   color: #ffd76a;
 }
-.duel-log-line.thunder {
-  color: #9ac8ff;
-}
 .duel-log-line.poison {
   color: #6fd08a;
+}
+.duel-log-line.drain {
+  color: #c48aff;
 }
 .duel-log-line.end {
   color: var(--gold);

@@ -4,8 +4,8 @@ import { World } from './World';
 import { resolveBattle } from './BattleResolver';
 import { mutateGenome, genomeChanged, ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
-import { toast } from '../ui/modals';
 import { eventBus, EVT } from '../utils/eventBus';
+import { skillsFor, tryCastSkill, tickBuffs } from './Skills';
 import {
   MAX_HP,
   ENERGY_SPLIT_THRESHOLD,
@@ -42,6 +42,8 @@ export class SwordAgent {
   lastMoveDir = 0;
   /** 上一格坐标 (禁止立即折返，避免两格间来回振荡) */
   private prevCell: { x: number; y: number } | null = null;
+  /** 技能冷却剩余 tick */
+  skillCd = 0;
 
   /** 宗门大比剑诀修饰 */
   battleMods: {
@@ -124,7 +126,7 @@ export class SwordAgent {
   }
 
   /** 全盘扫描：寻找最近的指定目标 (曼哈顿距离) */
-  private nearestTarget(type: 'food' | 'sword'): { dx: number; dy: number; dist: number } | null {
+  nearestTarget(type: 'food' | 'sword'): { dx: number; dy: number; dist: number } | null {
     const hunger = this.hungerLevel();
     const baseRange = clamp(Math.round(this.state.genome.perception * 2), 2, 10);
     const huntBonus = type === 'food' && hunger > 0.6 ? 10 : 0; // 极度饥饿时扩大搜寻半径
@@ -225,10 +227,11 @@ export class SwordAgent {
     return best;
   }
 
-  /** 有效锋锐 (受剑诀/词条影响) */
+  /** 有效锋锐 (受剑诀/词条/buff 影响) */
   effectiveSharpness(): number {
     let s = this.state.genome.sharpness;
     if (this.state.genome.affixes.includes('kill5')) s += 1.5; // 斩念成性
+    if (this.state.buffAtkMult) s *= this.state.buffAtkMult;
     if (this.battleMods.firstStrike && this.world.tickCounter < 50) s *= 1.2;
     if (this.battleMods.agile) s *= 0.9;
     if (this.battleMods.quick) s *= 1.1;
@@ -346,8 +349,14 @@ export class SwordAgent {
     this.state.age++;
     this.actedThisTick = false;
     this.recheckAffixes();
+    if (this.skillCd > 0) this.skillCd--;
+    tickBuffs(this.state);
     const dir = this.decide();
     this.act(dir);
+    // 剑意技能 (五行天赋 + 词条)：耗精元、有冷却
+    if (this.skillCd <= 0 && this.state.energy > 5) {
+      tryCastSkill(this, this.world, skillsFor(this.state.genome.element, this.state.genome.affixes));
+    }
 
     const mods = this.world.modifiers;
     // 剑谱越强，日常维持耗神越多：锋刃之利、剑体之沉、身法之疾皆耗精元
@@ -433,8 +442,8 @@ export class SwordAgent {
         text: `第${this.world.config.currentDay}日：一道剑意悟得「${affixName(id)}」！`,
         focusId: this.state.id,
         important: true,
+        rareToast: rare ? `✨ 悟得稀有词条「${affixName(id)}」！` : undefined,
       });
-      if (rare) toast(`✨ 悟得稀有词条「${affixName(id)}」！`);
     };
     if (b.eatCount >= 30) add('eat30', false);
     if (b.killCount >= 5) add('kill5', false);

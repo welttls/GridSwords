@@ -14,7 +14,19 @@ export const EVT = {
   EAT: 'eat',                       // 采气星屑
   THUNDER: 'thunder',               // 天劫雷光
   EMERGENCE: 'emergence',           // 涌现庆典
+  SKILL: 'skill',                   // 剑意技能特效
 } as const;
+
+/** 技能特效事件 */
+export interface SkillVisual {
+  kind: 'projectile' | 'aoe' | 'line' | 'teleport' | 'heal' | 'buff';
+  x: number;
+  y: number;
+  dx?: number;
+  dy?: number;
+  element?: string;
+  radius?: number;
+}
 
 /** 粒子事件负载 (网格坐标 + 五行) */
 export interface ParticleEvent {
@@ -31,6 +43,8 @@ export interface LogMessage {
   focusId?: string;
   /** 重要事件：可在「剑域纪事」的「重要」tab 中筛出 (涌现/血脉断绝/悟得词条/寄灵…) */
   important?: boolean;
+  /** 需要弹出 toast 的文本 (由 UI 层 HUD 处理，simulation 不直接调 DOM) */
+  rareToast?: string;
 }
 
 type Handler = (payload: any) => void;

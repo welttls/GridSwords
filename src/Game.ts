@@ -576,69 +576,80 @@ export class Game {
     this.frame++;
     const dt = Math.min(0.1, (this.app.ticker.deltaMS || 0) / 1000); // 秒，钳制防卡顿爆量
 
-    if (this.scene === 'forge' && this.world && !this.paused) {
-      const tps = TICKS_PER_SECOND * this.speed;
-      this.tickAccumulator += dt;
-      let budget = Math.floor(this.tickAccumulator * tps);
-      if (budget > 0) {
-        this.tickAccumulator -= budget / tps;
-        budget = Math.min(budget, 120);
-        for (let i = 0; i < budget; i++) {
-          this.runTick();
-          if (this.tribulationEnded) break;
-        }
-      }
+    if (this.scene === 'forge' && this.world) {
+      // 粒子始终推进 (暂停时也淡出，避免冻结残点)
+      this.renderer?.updateParticles(dt);
       this.renderer?.render(this.world, this.frame);
-      // 本命血脉断绝：提示玩家是否重新种下剑胚
-      if (!this.tribulationEnded && !this.seedExtinctPrompted && this.seedLineageExtinct()) {
-        this.seedExtinctPrompted = true;
-        eventBus.emit(EVT.LOG, {
-          text: `第${this.world.config.currentDay}日：本命血脉已然断绝，剑域之中再无剑胚一脉。`,
-          important: true,
-        });
-        this.paused = true;
-        this.refreshHudControls();
-        this.promptReseed();
+      if (!this.paused) {
+        const tps = TICKS_PER_SECOND * this.speed;
+        this.tickAccumulator += dt;
+        let budget = Math.floor(this.tickAccumulator * tps);
+        if (budget > 0) {
+          this.tickAccumulator -= budget / tps;
+          budget = Math.min(budget, 120);
+          for (let i = 0; i < budget; i++) {
+            this.runTick();
+            if (this.tribulationEnded) break;
+          }
+        }
+        // 本命血脉断绝：提示玩家是否重新种下剑胚
+        if (!this.tribulationEnded && !this.seedExtinctPrompted && this.seedLineageExtinct()) {
+          this.seedExtinctPrompted = true;
+          eventBus.emit(EVT.LOG, {
+            text: `第${this.world.config.currentDay}日：本命血脉已然断绝，剑域之中再无剑胚一脉。`,
+            important: true,
+          });
+          this.paused = true;
+          this.refreshHudControls();
+          this.promptReseed();
+        }
+        // 涌现惊喜：出现能自续的稳定血脉 (数量达标且世代够深)
+        if (
+          !this.emergenceCelebrated &&
+          this.world.swords.size >= EMERGENCE_THRESHOLD &&
+          this.world.maxGeneration >= EMERGENCE_MIN_GEN
+        ) {
+          this.emergenceCelebrated = true;
+          const rep = this.pickRepresentativeSword();
+          this.emergenceTargetId = rep ? rep.state.id : null;
+          eventBus.emit(EVT.LOG, {
+            text: '万剑相杀之中，有一股血脉自成气候——自采气、自分灵，剑意存续之道初显端倪！',
+            focusId: this.emergenceTargetId ?? undefined,
+            important: true,
+          });
+          toast('✨ 涌现：一道能自续的稳定剑意血脉诞生了！点击聚焦', 8000, () => {
+            if (this.emergenceTargetId) this.focusSword(this.emergenceTargetId);
+          });
+        }
+        this.saveTimer += 16.6;
+        if (this.saveTimer >= SAVE_INTERVAL_MS) {
+          this.saveTimer = 0;
+          this.saveGame();
+        }
       }
       if (this.frame % 6 === 0) this.hud?.update(this.world);
       this.hud?.setFurnaceEnabled(this.hasMaterialLeft() && !this.tribulationEnded);
       this.hud?.setFeedState(this.feedRemaining(), () => this.dropFood());
-      // 涌现惊喜：出现能自续的稳定血脉 (数量达标且世代够深)
-      if (
-        !this.emergenceCelebrated &&
-        this.world.swords.size >= EMERGENCE_THRESHOLD &&
-        this.world.maxGeneration >= EMERGENCE_MIN_GEN
-      ) {
-        this.emergenceCelebrated = true;
-        const rep = this.pickRepresentativeSword();
-        this.emergenceTargetId = rep ? rep.state.id : null;
-        eventBus.emit(EVT.LOG, {
-          text: '万剑相杀之中，有一股血脉自成气候——自采气、自分灵，剑意存续之道初显端倪！',
-          focusId: this.emergenceTargetId ?? undefined,
-          important: true,
-        });
-        toast('✨ 涌现：一道能自续的稳定剑意血脉诞生了！点击聚焦', 8000, () => {
-          if (this.emergenceTargetId) this.focusSword(this.emergenceTargetId);
-        });
-      }
-      this.saveTimer += 16.6;
-      if (this.saveTimer >= SAVE_INTERVAL_MS) {
-        this.saveTimer = 0;
-        this.saveGame();
-      }
     } else if (this.scene === 'tournament' && this.battle && !this.battle.ended) {
-      this.battleAccumulator += dt;
-      let budget = Math.floor(this.battleAccumulator * BATTLE_TPS);
-      if (budget > 0) {
-        this.battleAccumulator -= budget / BATTLE_TPS;
-        budget = Math.min(budget, 60);
-        for (let i = 0; i < budget; i++) {
-          const events = this.battle.duel.step();
-          this.battle.tick++;
-          if (events.length > 0) {
-            this.battle.ui.pushEvents(events, this.battle.duel.p, this.battle.duel.n);
+      // 玩家选招时暂停蓄条
+      if (!this.battle.duel.pNeedsChoice) {
+        this.battleAccumulator += dt;
+        let budget = Math.floor(this.battleAccumulator * BATTLE_TPS);
+        if (budget > 0) {
+          this.battleAccumulator -= budget / BATTLE_TPS;
+          budget = Math.min(budget, 60);
+          for (let i = 0; i < budget; i++) {
+            const events = this.battle.duel.step();
+            this.battle.tick++;
+            if (events.length > 0) {
+              this.battle.ui.pushEvents(events, this.battle.duel.p, this.battle.duel.n);
+            }
+            if (this.battle.duel.pNeedsChoice) {
+              this.battle.ui.showTechniqueChoice(this.battle.duel.playerTechniques(), (id) => this.chooseTechnique(id));
+              break;
+            }
+            if (this.checkBattleEnd()) break;
           }
-          if (this.checkBattleEnd()) break;
         }
       }
     }
@@ -896,9 +907,21 @@ export class Game {
     // 开战仪式
     ui.pushEvents(
       [{ text: `试剑台上，${opp.name}抱剑而立，剑意如虹：「请！」`, kind: 'info', actor: 'npc' }],
-      { hp: duel.p.hp, energy: duel.p.energy, ap: duel.p.ap },
-      { hp: duel.n.hp, energy: duel.n.energy, ap: duel.n.ap },
+      { hp: duel.p.hp, maxHp: duel.p.maxHp, energy: duel.p.energy, ap: duel.p.ap },
+      { hp: duel.n.hp, maxHp: duel.n.maxHp, energy: duel.n.energy, ap: duel.n.ap },
     );
+  }
+
+  /** 玩家选择招式 */
+  chooseTechnique(techId: string): void {
+    const b = this.battle;
+    if (!b) return;
+    b.ui.hideTechniqueChoice();
+    const events = b.duel.playerChoose(techId);
+    if (events.length > 0) {
+      b.ui.pushEvents(events, b.duel.p, b.duel.n);
+    }
+    this.checkBattleEnd();
   }
 
   private checkBattleEnd(): boolean {

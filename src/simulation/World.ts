@@ -346,8 +346,19 @@ export class World {
     this.foodCount++;
   }
 
+  /** 开局固定撒 count 团庚金 (直接放置，不概率) */
   spawnInitialFood(count: number): void {
-    for (let i = 0; i < count; i++) this.spawnFood();
+    for (let i = 0; i < count; i++) {
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const x = Math.floor(Math.random() * this.config.width);
+        const y = Math.floor(Math.random() * this.config.height);
+        if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
+          this.food[y][x] = FOOD_ENERGY;
+          this.foodCount++;
+          break;
+        }
+      }
+    }
   }
 
   /** 在中心附近生成食物 (开局补给，确保剑胚快速安家) */

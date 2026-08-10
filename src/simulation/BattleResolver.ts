@@ -18,7 +18,9 @@ export interface BattleResult {
 export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): BattleResult {
   const atk = attacker.effectiveSharpness();
   const def = defender.effectiveToughness();
-  const damage = Math.max(1, atk - def * 0.5);
+  let damage = Math.max(1, atk - def * 0.5);
+  // 磐石护/百炼守 buff：受击减免
+  if (defender.state.buffDefMult) damage = Math.max(1, Math.round(damage * (1 / (1 + defender.state.buffDefMult * 0.5))));
 
   // 碰撞亦耗精元：出招耗神，受击损元
   attacker.state.energy -= 2;
