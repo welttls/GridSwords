@@ -5,7 +5,7 @@ import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, ELEMENT_COLOR } from '../simulation/Genetics';
 import { affixName } from '../data/AffixDB';
 import type { SwordArt } from '../data/SwordArts';
-import type { DuelEvent, DuelTechnique, DuelSideId } from '../simulation/Duel';
+import type { DuelEvent, DuelTechnique, DuelSideId, DuelFx } from '../simulation/Duel';
 
 export interface OpponentInfo {
   id: string;
@@ -200,6 +200,109 @@ export function buildTournament(
     }
   }
 
+  /** 技能专属特效 (DOM 动画，按招式类型区分) */
+  function playFx(fx: DuelFx, attacker: HTMLElement, defender: HTMLElement, color: string): void {
+    const ac = attacker.querySelector('canvas');
+    const dc = defender.querySelector('canvas');
+    if (!ac || !dc) return;
+    const f = field.getBoundingClientRect();
+    const a = ac.getBoundingClientRect();
+    const d = dc.getBoundingClientRect();
+    const ax = a.left - f.left + a.width / 2;
+    const ay = a.top - f.top + a.height / 2;
+    const dx = d.left - f.left + d.width / 2;
+    const dy = d.top - f.top + d.height / 2;
+    const dist = Math.hypot(dx - ax, dy - ay);
+    const ang = Math.atan2(dy - ay, dx - ax);
+    const mk = (cls: string) => {
+      const e = el('div', 'duel-fx ' + cls);
+      field.appendChild(e);
+      window.setTimeout(() => e.remove(), 1100);
+      return e;
+    };
+    switch (fx) {
+      case 'slash': {
+        const s = mk('df-slash');
+        s.style.width = `${Math.max(60, dist * 0.9)}px`;
+        s.style.left = `${ax}px`;
+        s.style.top = `${ay}px`;
+        s.style.setProperty('--ang', `${ang}rad`);
+        s.style.setProperty('--dist', `${Math.max(60, dist)}px`);
+        s.style.background = `linear-gradient(90deg, transparent 0%, ${color} 40%, #ffffff 100%)`;
+        break;
+      }
+      case 'beam': {
+        const b = mk('df-beam');
+        b.style.left = `${Math.min(ax, dx)}px`;
+        b.style.top = `${(ay + dy) / 2 - 5}px`;
+        b.style.width = `${dist}px`;
+        b.style.background = `linear-gradient(90deg, ${color}, #ffffff 55%, ${color})`;
+        break;
+      }
+      case 'blast': {
+        const bo = mk('df-blast');
+        bo.style.left = `${dx - 30}px`;
+        bo.style.top = `${dy - 30}px`;
+        bo.style.borderColor = color;
+        bo.style.boxShadow = `0 0 26px 6px ${color}`;
+        break;
+      }
+      case 'drain': {
+        const dl = mk('df-drain');
+        dl.style.width = `${dist}px`;
+        dl.style.left = `${dx}px`;
+        dl.style.top = `${dy}px`;
+        dl.style.setProperty('--ang', `${ang + Math.PI}rad`);
+        const g = mk('df-heal-flash');
+        g.style.left = `${ax - 24}px`;
+        g.style.top = `${ay - 24}px`;
+        g.style.background = `radial-gradient(circle, rgba(111,208,138,.85), transparent 70%)`;
+        break;
+      }
+      case 'poison': {
+        const p = mk('df-poison');
+        p.style.left = `${dx - 30}px`;
+        p.style.top = `${dy - 30}px`;
+        break;
+      }
+      case 'heal': {
+        const h = mk('df-heal');
+        h.style.left = `${ax - 18}px`;
+        h.style.top = `${ay - 40}px`;
+        h.style.background = `linear-gradient(180deg, ${color}, rgba(111,208,138,0))`;
+        break;
+      }
+      case 'shield': {
+        const sh = mk('df-shield');
+        sh.style.left = `${ax - 34}px`;
+        sh.style.top = `${ay - 34}px`;
+        sh.style.borderColor = color;
+        sh.style.boxShadow = `0 0 20px 2px ${color} inset, 0 0 14px 1px ${color}`;
+        break;
+      }
+      case 'dash': {
+        for (let i = 1; i <= 3; i++) {
+          const g = mk('df-dash');
+          g.style.left = `${ax - 30 + i * 8}px`;
+          g.style.top = `${ay - 30}px`;
+          g.style.setProperty('--i', String(i));
+          g.style.borderColor = color;
+        }
+        break;
+      }
+      case 'heavy': {
+        const hw = mk('df-heavy');
+        hw.style.left = `${dx - 35}px`;
+        hw.style.top = `${dy - 35}px`;
+        hw.style.borderColor = color;
+        hw.style.boxShadow = `0 0 22px 4px ${color}`;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   const ui: BattleUI = {
     getOpponent: () => selectedId,
     getArt: () => artSel.value,
@@ -253,7 +356,7 @@ export function buildTournament(
         logBox.appendChild(line);
         logBox.scrollTop = logBox.scrollHeight;
 
-        // 招式动画：前冲 + 大字 + 碰撞粒子
+        // 招式动画：大字 + 前冲 + 碰撞粒子 + 技能专属特效
         if (e.techName) {
           const attacker = e.actor === 'player' ? left : right;
           const defender = e.actor === 'player' ? right : left;
@@ -265,20 +368,26 @@ export function buildTournament(
           void techTitle.offsetWidth; // 重置动画
           techTitle.classList.add('show');
           window.setTimeout(() => techTitle.classList.add('hidden'), 950);
-          // 前冲
-          attacker.classList.add('lunging');
-          window.setTimeout(() => {
-            attacker.classList.remove('lunging');
-            // 碰撞粒子 (落在守方位置)
-            const dCanvas = defender.querySelector('canvas');
-            if (dCanvas) {
-              const r = dCanvas.getBoundingClientRect();
-              const f = field.getBoundingClientRect();
-              burst(r.left - f.left + r.width / 2, r.top - f.top + r.height / 2, color, e.kind === 'crit' ? 20 : 12);
-            }
-            defender.classList.add('shaken');
-            window.setTimeout(() => defender.classList.remove('shaken'), 350);
-          }, 260);
+          // 攻击类招式：前冲 + 碰撞粒子 + 受击 (回复/护盾类只在自身放特效，不出击)
+          const fx = e.fx ?? 'strike';
+          const isAttack = fx !== 'heal' && fx !== 'shield';
+          if (isAttack) {
+            attacker.classList.add('lunging');
+            window.setTimeout(() => {
+              attacker.classList.remove('lunging');
+              // 碰撞粒子 (落在守方位置)
+              const dCanvas = defender.querySelector('canvas');
+              if (dCanvas) {
+                const r = dCanvas.getBoundingClientRect();
+                const f = field.getBoundingClientRect();
+                burst(r.left - f.left + r.width / 2, r.top - f.top + r.height / 2, color, e.kind === 'crit' ? 20 : 12);
+              }
+              defender.classList.add('shaken');
+              window.setTimeout(() => defender.classList.remove('shaken'), 350);
+            }, 260);
+          }
+          // 技能专属特效
+          if (fx && fx !== 'strike') playFx(fx, attacker, defender, color);
         }
       }
       const fill = (bar: HTMLElement, ratio: number, color: string) => {

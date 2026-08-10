@@ -22,7 +22,7 @@ export const AFFIXES: AffixDef[] = [
   {
     id: 'fight15',
     name: '百炼之体',
-    desc: '历经 ≥ 15 战而存续。此后坚固 +1.5。',
+    desc: '历经 ≥ 20 战而存续。此后坚固 +1.5。',
   },
   {
     id: 'roam400',

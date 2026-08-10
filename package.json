@@ -1,7 +1,7 @@
 {
   "name": "sword-forge",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "《炼剑》——修仙题材放置·进化·模拟游戏 (SwordForge SRD v1.0)",
   "scripts": {

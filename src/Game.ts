@@ -378,7 +378,7 @@ export class Game {
     });
     no.addEventListener('click', () => {
       overlay.remove();
-      closeAndResume();
+      this.showMenu();
     });
   }
 

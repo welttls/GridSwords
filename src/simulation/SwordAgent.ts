@@ -447,7 +447,7 @@ export class SwordAgent {
     };
     if (b.eatCount >= 30) add('eat30', false);
     if (b.killCount >= 5) add('kill5', false);
-    if (b.fightsSurvived >= 15) add('fight15', false);
+    if (b.attackCount + b.fightsSurvived >= 20) add('fight15', false);
     if (b.cellsVisited >= 400) add('roam400', false);
     if (g.sharpness >= 7 && g.aggression >= 0.6) add('poison', true);
     if (g.element === 'wood' && g.strategy >= 0.7 && this.state.generation >= 5) add('parasite', true);

@@ -861,6 +861,137 @@ canvas {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
   100% { transform: translate(var(--dx, 0), var(--dy, 0)) scale(0.2); opacity: 0; }
 }
+/* ===== 技能专属特效 (duel-fx) ===== */
+.duel-fx {
+  position: absolute;
+  pointer-events: none;
+  z-index: 6;
+}
+/* 剑气斩：弧光弹道 */
+.df-slash {
+  height: 9px;
+  border-radius: 6px;
+  transform-origin: left center;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.75));
+  animation: dfSlash 0.5s ease-out forwards;
+}
+@keyframes dfSlash {
+  0% { transform: translateX(0) rotate(var(--ang)); opacity: 0; }
+  12% { opacity: 1; }
+  100% { transform: translateX(calc(var(--dist) - 100%)) rotate(var(--ang)); opacity: 0; }
+}
+/* 天门破：贯穿光束 */
+.df-beam {
+  height: 8px;
+  border-radius: 4px;
+  transform-origin: left center;
+  box-shadow: 0 0 18px 3px rgba(255, 255, 255, 0.7);
+  animation: dfBeam 0.55s ease-out forwards;
+}
+@keyframes dfBeam {
+  0% { transform: scaleX(0); opacity: 0; }
+  18% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+/* 焚天爆：爆炸扩散 */
+.df-blast {
+  width: 60px;
+  height: 60px;
+  border: 3px solid;
+  border-radius: 50%;
+  animation: dfBlast 0.6s ease-out forwards;
+}
+@keyframes dfBlast {
+  0% { transform: scale(0.2); opacity: 1; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+/* 寄灵噬：吸血线 */
+.df-drain {
+  height: 3px;
+  background: linear-gradient(90deg, #c48aff, #ffd76a);
+  transform-origin: right center;
+  box-shadow: 0 0 10px 1px rgba(196, 138, 255, 0.8);
+  animation: dfDrain 0.6s ease-in forwards;
+}
+@keyframes dfDrain {
+  0% { transform: rotate(var(--ang)) scaleX(1); opacity: 1; }
+  100% { transform: rotate(var(--ang)) scaleX(0); opacity: 0; }
+}
+/* 回复闪光 (吸血/回复用) */
+.df-heal-flash {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  animation: dfPulse 0.7s ease-out forwards;
+}
+@keyframes dfPulse {
+  0% { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+/* 淬毒雨：毒雾 */
+.df-poison {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(126, 217, 87, 0.65), transparent 70%);
+  filter: blur(1px);
+  animation: dfPoison 1s ease-out forwards;
+}
+@keyframes dfPoison {
+  0% { transform: scale(0.3); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+/* 回春术/吞金燃灵：回复光柱 */
+.df-heal {
+  width: 36px;
+  height: 46px;
+  border-radius: 10px;
+  animation: dfHeal 0.8s ease-out forwards;
+}
+@keyframes dfHeal {
+  0% { transform: translateY(12px) scaleY(0.5); opacity: 1; }
+  100% { transform: translateY(-26px) scaleY(1.2); opacity: 0; }
+}
+/* 磐石护/百炼守：护盾 */
+.df-shield {
+  width: 68px;
+  height: 68px;
+  border: 3px solid;
+  border-radius: 50%;
+  animation: dfShield 0.9s ease-out forwards;
+}
+@keyframes dfShield {
+  0% { transform: scale(0.7); opacity: 0.95; }
+  40% { transform: scale(1.12); opacity: 0.85; }
+  70% { transform: scale(0.95); opacity: 0.6; }
+  100% { transform: scale(1.05); opacity: 0; }
+}
+/* 瞬水步/游龙步：残影 */
+.df-dash {
+  width: 60px;
+  height: 60px;
+  border: 2px solid;
+  border-radius: 50%;
+  opacity: 0.5;
+  animation: dfDash 0.5s ease-out forwards;
+}
+@keyframes dfDash {
+  0% { transform: translateX(0); opacity: 0.55; }
+  100% { transform: translateX(calc(var(--i, 1) * 26px)); opacity: 0; }
+}
+/* 重击：冲击波 */
+.df-heavy {
+  width: 70px;
+  height: 70px;
+  border: 3px solid;
+  border-radius: 50%;
+  animation: dfHeavy 0.55s ease-out forwards;
+}
+@keyframes dfHeavy {
+  0% { transform: scale(0.15); opacity: 1; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
 /* 大招大字 */
 .duel-tech-title {
   position: absolute;

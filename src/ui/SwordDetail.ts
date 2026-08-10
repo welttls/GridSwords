@@ -121,7 +121,7 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
     ['存续', `${formatSurvival(s.age)}`],
     ['足迹', `${b.cellsVisited} 格`],
     ['采气', `${b.eatCount} 团`],
-    ['历经', `${b.attackCount} 战`],
+    ['历经', `${b.attackCount + b.fightsSurvived} 战`],
     ['击破', `${b.killCount} 敌`],
     ['剑子', `${descendants} 柄`],
   ];

@@ -27,6 +27,19 @@ export interface DuelTechnique {
   source: string;
 }
 
+/** 招式特效 (技能专属动画) */
+export type DuelFx =
+  | 'slash'    // 剑气斩：弧光弹道
+  | 'beam'     // 天门破：贯穿光束
+  | 'blast'    // 焚天爆：爆炸冲击
+  | 'drain'    // 寄灵噬：吸血
+  | 'poison'   // 淬毒雨：毒雾
+  | 'heal'     // 回春术/吞金燃灵：回复光
+  | 'shield'   // 磐石护/百炼守：护盾
+  | 'dash'     // 瞬水步/游龙步/疾风刺：残影
+  | 'heavy'    // 重击：冲击波
+  | 'strike';  // 普攻
+
 /** 一帧决斗事件 (MUD 文字 + 动画指令) */
 export interface DuelEvent {
   text: string;
@@ -35,6 +48,8 @@ export interface DuelEvent {
   dmg?: number;
   /** 使用的招式名 (用于大字 + 前冲动画) */
   techName?: string;
+  /** 招式特效类型 (技能专属动画) */
+  fx?: DuelFx;
 }
 
 export interface DuelCombatantConfig {
@@ -128,6 +143,33 @@ export function buildTechniques(genome: Genome, element: Element): DuelTechnique
   // 组成：基础 + 五行天赋 + 词条(优先) + 属性(补位)，最多 4 招
   const ordered = [base, elementTech, ...affixTechs, ...statTechs];
   return ordered.slice(0, 4);
+}
+
+/** 招式 → 特效类型 (技能 id 优先，kind 兜底) */
+const FX_BY_ID: Record<string, DuelFx> = {
+  skill_swordqi: 'slash',
+  skill_eruption: 'blast',
+  skill_breach: 'beam',
+  skill_parasite: 'drain',
+  skill_poisonrain: 'poison',
+  skill_regrowth: 'heal',
+  skill_convert: 'heal',
+  skill_bulwark: 'shield',
+  skill_hundred: 'shield',
+  skill_blink: 'dash',
+  skill_roam: 'dash',
+};
+export function techFx(tech: DuelTechnique): DuelFx {
+  if (tech.id in FX_BY_ID) return FX_BY_ID[tech.id];
+  switch (tech.kind) {
+    case 'quick': return 'dash';
+    case 'heavy': return 'heavy';
+    case 'poison': return 'poison';
+    case 'drain': return 'drain';
+    case 'guard': return 'shield';
+    case 'recover': return 'heal';
+    default: return 'strike';
+  }
 }
 
 /**
@@ -299,6 +341,7 @@ export class Duel {
   private act(a: Fighter, d: Fighter, tech: DuelTechnique): DuelEvent[] {
     const ev: DuelEvent[] = [];
     const techName = tech.name;
+    const fx = techFx(tech);
     let total = 0;
     let crit = false;
     let dodged = false;
@@ -369,7 +412,7 @@ export class Duel {
     }
 
     this.checkDeath(d, ev);
-    ev.push({ text, kind, actor: a.side, dmg: total, techName });
+    ev.push({ text, kind, actor: a.side, dmg: total, techName, fx });
     return ev;
   }
 }
