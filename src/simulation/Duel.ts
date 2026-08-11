@@ -3,7 +3,7 @@ import { ELEMENT_TALENTS, AFFIX_SKILLS, MIND_SKILL_BY_ID } from './Skills';
 import type { SwordSkill } from './Skills';
 import { ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
-import { MIND_DUEL_BONUS, MIND_ENERGY_MULT } from '../constants';
+import { MIND_DUEL_BONUS, MIND_ENERGY_MULT, MIND_REALM_DMG_REDUCTION } from '../constants';
 
 export type DuelSideId = 'player' | 'npc';
 
@@ -430,6 +430,9 @@ export class Duel {
           dmg = Math.max(1, Math.round(dmg * 0.45));
           d.guarded = false;
         }
+        // v2.1.0：剑心等级免伤——高境对低境攻击者每境差免伤 12% (与野外 BattleResolver 一致)
+        const realmGap = (d.mindRealm ?? 0) - (a.mindRealm ?? 0);
+        if (realmGap > 0) dmg = Math.max(1, Math.round(dmg * (1 - realmGap * MIND_REALM_DMG_REDUCTION)));
         if (tech.selfDmg) a.hp -= tech.selfDmg;
         d.hp -= dmg;
         total += dmg;

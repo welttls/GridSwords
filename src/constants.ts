@@ -44,11 +44,11 @@ export const MIND_REALMS = [
   { name: '忘我', hidden: 16 },
 ] as const;
 
-/** 晋升条件：只看击破（击杀数）达标即开悟下一境 (v2.0.0：历经或击破 → 历经且击破 → 仅击破；击破门槛 1/3/6) */
+/** 晋升条件：只看击破（击杀数）达标即开悟下一境 (v2.0.0：仅击破；v2.1.0：门槛 1/3/6 → 2/3/5，洞玄/忘我更可达) */
 export const MIND_REALM_THRESHOLDS = [
-  { battles: 8, kills: 1 },
+  { battles: 8, kills: 2 },
   { battles: 20, kills: 3 },
-  { battles: 45, kills: 6 },
+  { battles: 45, kills: 5 },
 ] as const;
 
 /** 各境界精元消耗倍率 (剑心愈明，维持愈省；野外与大比共用) */
@@ -59,6 +59,10 @@ export const MIND_CAST_MULT = [1, 1, 1.25, 1.5] as const;
 export const MIND_DUEL_BONUS = [0, 0.5, 1, 2] as const;
 /** 各境界剑意体型缩放 (v2.0.0)：剑身随境界变大，肉眼可辨 */
 export const MIND_SWORD_SCALE = [1, 1.12, 1.25, 1.4] as const;
+/** 剑心等级免伤 (v2.1.0)：高境对低境攻击者，每境差免伤比例——通明 vs 凡心 -12%、洞玄 vs 凡心 -24%、忘我 vs 凡心 -36% (野外与大比共用) */
+export const MIND_REALM_DMG_REDUCTION = 0.12;
+/** 以战养战：击杀后回血比例 (v2.1.0：+5 固定 → 15% 上限，胜者不再轻易被捡漏) */
+export const KILL_HEAL_PCT = 0.15;
 
 /** 剑心境界 → NN 结构 (输入 26、输出 4 固定，仅隐藏层随境界变化) */
 export function mindSizes(realm: number): number[] {
@@ -72,7 +76,21 @@ export const MAX_DAYS = 10;
 export const TICKS_PER_DAY = 960;    // 1x 时约 4 分钟/日
 export const TOTAL_TICKS = MAX_DAYS * TICKS_PER_DAY;
 export const SHRINK_INTERVAL_TICKS = TICKS_PER_SECOND * 2; // 每2秒收缩一格
-export const SHRINK_TARGET_SPAN = 4; // 收缩到最内圈 4x4 即止
+export const SHRINK_TARGET_SPAN = 4; // v2.1.0：收缩到 4x4 即止（给落雷/战斗特效展示空间）；斗至最后一柄靠天劫临时杀性
+
+// ===== 天劫全领域天雷 (v2.1.0)：每收缩一格同步落雷 =====
+/** 天雷单次伤害 (v2.1.0：25 → 28) */
+export const TRIBULATION_LIGHTNING_DMG = 28;
+/** 天雷单次耗精元 */
+export const TRIBULATION_LIGHTNING_ENERGY = 12;
+/** 每次收缩的基础落雷道数 (血亲相争+挤入争斗已是主淘汰力，落雷作辅助压力) */
+export const TRIBULATION_LIGHTNING_BASE = 4;
+/** 每收缩 N 圈额外 +1 道雷 (越到后期越密集；64→1 共 31 圈 → 晚期 4+7=11 道，受场地面积钳制) */
+export const TRIBULATION_LIGHTNING_RAMP = 4;
+/** v2.1.0：天劫杀性加成——收束期间剑意杀性大涨、主动寻战（选出「练成的剑」而非躲战苟活） */
+export const TRIBULATION_AGGRESSION_BONUS = 0.4;
+/** v2.1.0：天劫超时兜底——收束持续超过 1 日仍未分胜负则强制收束（防躲战卡死；多幸存者时鉴定取最优） */
+export const TRIBULATION_MAX_TICKS = TICKS_PER_DAY;
 
 /** 十二时辰 */
 export const SHICHEN_NAMES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'] as const;

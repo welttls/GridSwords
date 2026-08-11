@@ -163,8 +163,8 @@ export class SwordAgent {
           const sid = this.world.swordIdAt(x, y);
           if (!sid) continue;
           const other = this.world.swords.get(sid);
-          // v1.12.0：血亲（同源一脉）不可为敌——本能/恐惧/策略/技能目标一律排除
-          if (!other || this.world.isKin(this, other)) continue;
+          // v1.12.0：血亲（同源一脉）不可为敌——本能/恐惧/策略/技能目标一律排除；v2.1.0 天劫期间血亲亦相争
+          if (!other || (this.world.kinProtected() && this.world.isKin(this, other))) continue;
         }
         const dist = Math.abs(dx) + Math.abs(dy);
         if (!best || dist < best.dist) best = { dx, dy, dist };
@@ -204,8 +204,8 @@ export class SwordAgent {
       bias[this.dirTo(enemy.dx, enemy.dy)] += aggr * 0.7 * closeness;
     }
 
-    // 恐惧本能：生命低时远离剑意 (反方向)
-    if (enemy && hpRatio < 0.45) {
+    // 恐惧本能：生命低时远离剑意 (反方向) —— v2.1.0 天劫收束期间失效（困兽犹斗，天劫之下无处可逃，谁都要争夺）
+    if (enemy && !this.world.config.isShrinking && hpRatio < 0.45) {
       bias[this.dirTo(enemy.dx, enemy.dy) ^ 1] += (1 - hpRatio) * 0.7;
     }
 
@@ -271,7 +271,7 @@ export class SwordAgent {
     // 杀性越高，放弃追击的血线越低、追击范围越大（温和系易罢手）
     const aggr = this.world.effectiveAggression(this.state.genome.aggression);
     const giveUpHp = 0.15 * (1 - aggr * 0.6); // 杀性 0.9→0.069 / 0.3→0.123
-    if (!other || other.state.id === this.state.id || this.world.isKin(this, other) || this.state.hp / MAX_HP < giveUpHp) {
+    if (!other || other.state.id === this.state.id || (this.world.kinProtected() && this.world.isKin(this, other)) || this.state.hp / MAX_HP < giveUpHp) {
       this.huntTargetId = null; // 目标陨落/血亲/自身重伤，放弃追击
       return null;
     }
@@ -367,8 +367,8 @@ export class SwordAgent {
     if (otherId) {
       const defender = this.world.swords.get(otherId);
       if (defender) {
-        // v1.12.0：血亲不相攻——同源一脉视作阻挡，绕行而过（不战斗、不寄灵）
-        if (this.world.isKin(this, defender)) return false;
+        // v1.12.0：血亲不相攻——同源一脉视作阻挡，绕行而过（不战斗、不寄灵）；v2.1.0 天劫期间血亲亦相争
+        if (this.world.kinProtected() && this.world.isKin(this, defender)) return false;
         this.behavior.attackCount++;
         const result = resolveBattle(this, defender);
         eventBus.emit(EVT.BATTLE_HIT, {
@@ -453,8 +453,7 @@ export class SwordAgent {
       BASE_ENERGY_CONSUMPTION * (1 + g.speed * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
     cost *= this.actedThisTick ? 1 : IDLE_MULT; // 静养耗精元大减
     cost *= MIND_ENERGY_MULT[this.state.mindRealm ?? 0]; // 剑心愈明，维持愈省 (v1.12.0)
-    // v2.0.0：水系「轻灵」——维持耗神更省（感知高视野大移动多，省能防饿死；配合高回血成为存活第二）
-    if (this.state.genome.element === 'water') cost *= 0.85;
+    // v2.1.0：水系「轻灵」耗神 -15% 已移除——食物效率（采食回能 ×1.35）已足够支撑水系生存
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
     if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
@@ -462,7 +461,7 @@ export class SwordAgent {
     if (this.battleMods.quick) cost *= 0.8;   // 快剑：举重若轻
     if (!this.battleMods.noCost) this.state.energy -= cost;
 
-    // 缓慢回气 (v2.0.0：水系「生生不息」回血最高 ×1.6，成为存活第二)
+    // 缓慢回气 (v2.1.0：水系「生生不息」回血 ×2.0 保留，与采食回能 ×1.35 共同构成水系差异化)
     const regen = HP_REGEN_PER_TICK * (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1);
     this.state.hp = Math.min(MAX_HP, this.state.hp + regen);
     if (this.state.hp < this.behavior.minHp) this.behavior.minHp = this.state.hp;
@@ -543,6 +542,9 @@ export class SwordAgent {
     // 同步序列化快照，防存档读到扩容前的旧长度
     this.state.brainWeights = this.brain.getWeights();
     this.state.brainBiases = this.brain.getBiases();
+    // v2.1.0：顿悟回春——晋境瞬间剑体回满、精元恢复至至少 50（低于分化阈值 80，不立即分化），防顿悟后被捡漏
+    this.state.hp = MAX_HP;
+    if (this.state.energy < 50) this.state.energy = 50;
     const name = MIND_REALMS[next].name;
     // 剑心绝技：忘我固定大招；通明/洞玄 3 选 1（本命血脉弹窗选，外来随机）
     const skills = (this.state.mindSkillIds ??= []);

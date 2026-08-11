@@ -1,5 +1,5 @@
 import type { SwordAgent } from './SwordAgent';
-import { MAX_HP } from '../constants';
+import { MAX_HP, KILL_HEAL_PCT, MIND_REALM_DMG_REDUCTION } from '../constants';
 
 export interface BattleResult {
   damage: number;
@@ -37,8 +37,10 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
   if (attacker.huntTargetId === defender.state.id) damage = Math.max(1, Math.round(damage * 1.3));
   // 磐石护/百炼守 buff：受击减免
   if (defender.state.buffDefMult) damage = Math.max(1, Math.round(damage * (1 / (1 + defender.state.buffDefMult * 0.5))));
-  // v2.0.0：水系「柔克刚」——受击减免 15%（化力于无形，配合高回血成为存活第二）
-  if (defender.state.genome.element === 'water') damage = Math.max(1, Math.round(damage * 0.85));
+  // v2.1.0：剑心等级免伤——高境对低境攻击者，每境差免伤 12%（通明对凡心 -12%、洞玄对凡心 -24%、忘我对凡心 -36%）
+  // 只影响伤害，不动反震（反震仍按原伤害计算）；水系柔克刚 15% 已于 v2.1.0 移除（食物效率已够立足）
+  const realmGap = (defender.state.mindRealm ?? 0) - (attacker.state.mindRealm ?? 0);
+  if (realmGap > 0) damage = Math.max(1, Math.round(damage * (1 - realmGap * MIND_REALM_DMG_REDUCTION)));
 
   // 碰撞亦耗精元：出招耗神，受击损元
   attacker.state.energy -= 2;
@@ -50,7 +52,8 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
   if (defender.state.hp <= 0) {
     const gained = defender.state.energy * 0.5;
     attacker.state.energy += gained;
-    attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + 5); // 以战养战，胜者回气
+    // v2.1.0：以战养战——击杀回血 15% 上限（原 +5 固定），胜者不再轻易被捡漏
+    attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + Math.round(MAX_HP * KILL_HEAL_PCT));
     return { damage, defenderDied: true, recoil: 0 };
   }
 

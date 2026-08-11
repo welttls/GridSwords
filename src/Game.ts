@@ -30,6 +30,7 @@ import {
   TICKS_PER_SECOND,
   TOTAL_TICKS,
   SHRINK_INTERVAL_TICKS,
+  TRIBULATION_MAX_TICKS,
   NN_LAYERS,
   MIND_REALMS,
   TICKS_PER_SHICHEN,
@@ -75,6 +76,8 @@ export class Game {
   speed = 1;
   tribulationEnded = false;
   lastShrinkTick = 0;
+  /** v2.1.0：天劫开始 tick（超时兜底计时） */
+  tribulationStartTick = 0;
   embryoGenome: Genome | null = null;
   emergenceCelebrated = false;
   selectedSwordId: string | null = null;
@@ -236,6 +239,7 @@ export class Game {
     this.world = world;
     this.tribulationEnded = false;
     this.lastShrinkTick = 0;
+    this.tribulationStartTick = 0;
     this.appraisalData = null;
     this.appraisedRanked = null;
     this.battlePlayerState = null;
@@ -321,6 +325,7 @@ export class Game {
     this.world = world;
     this.tribulationEnded = false;
     this.lastShrinkTick = world.tickCounter;
+    this.tribulationStartTick = world.tickCounter;
     this.appraisalData = null;
     this.emergenceCelebrated = false;
     this.seedExtinctPrompted = false;
@@ -908,14 +913,19 @@ export class Game {
         this.openDailyDropPanelForDay(day);
       }
     }
-    // 第10天：天劫收束
+    // 第10天：天劫收束——斗至最后一柄（场地缩到 4x4 后靠临时杀性决胜；超时兜底强制收束防卡死）
     if (day >= MAX_DAYS && !this.tribulationEnded) {
+      if (!w.config.isShrinking) this.tribulationStartTick = w.tickCounter;
       w.config.spawnFood = false;
       w.config.isShrinking = true;
       if (w.tickCounter - this.lastShrinkTick >= SHRINK_INTERVAL_TICKS) {
         this.lastShrinkTick = w.tickCounter;
         w.shrink();
         if (w.isTribulationOver()) this.endTribulation();
+      }
+      // v2.1.0 兜底：天劫超时（>1 日）仍未分胜负 → 强制收束（多幸存者时鉴定取最优）
+      if (!this.tribulationEnded && w.tickCounter - this.tribulationStartTick > TRIBULATION_MAX_TICKS) {
+        this.endTribulation();
       }
     }
   }

@@ -2,6 +2,7 @@ import type { Genome, SwordState, WorldConfig, WorldModifiers } from '../types';
 import { SwordAgent } from './SwordAgent';
 import { SimpleNN } from './NeuralNet';
 import { ELEMENT_LABEL } from './Genetics';
+import { resolveBattle } from './BattleResolver';
 import {
   GRID_WIDTH,
   GRID_HEIGHT,
@@ -14,6 +15,11 @@ import {
   ENERGY_SPLIT_THRESHOLD,
   MUTATION_RATE,
   MEGA_FOOD_ENERGY,
+  TRIBULATION_LIGHTNING_DMG,
+  TRIBULATION_LIGHTNING_ENERGY,
+  TRIBULATION_LIGHTNING_BASE,
+  TRIBULATION_LIGHTNING_RAMP,
+  TRIBULATION_AGGRESSION_BONUS,
 } from '../constants';
 import { clamp, shuffle, uid, randomInt } from '../utils/mathUtils';
 import { eventBus, EVT } from '../utils/eventBus';
@@ -144,6 +150,11 @@ export class World {
     return this.lineageRoot(a.state.id) === this.lineageRoot(b.state.id);
   }
 
+  /** v2.1.0：血亲庇护是否生效——天劫收束期间万剑相争，血亲亦成敌 (仅第 10 日 isShrinking 时失效) */
+  kinProtected(): boolean {
+    return !this.config.isShrinking;
+  }
+
   private cellKey(x: number, y: number): number {
     return y * this.config.width + x;
   }
@@ -153,9 +164,9 @@ export class World {
     return this.grid[y][x];
   }
 
-  /** 受材料影响后的有效攻击欲望 */
+  /** 受材料影响后的有效攻击欲望 (v2.1.0：天劫收束期间杀性大涨) */
   effectiveAggression(base: number): number {
-    return clamp(base + this.modifiers.aggressionBonus, 0, 1.5);
+    return clamp(base + this.modifiers.aggressionBonus + (this.config.isShrinking ? TRIBULATION_AGGRESSION_BONUS : 0), 0, 1.5);
   }
 
   /** 受材料影响后的基因突变率偏向 */
@@ -460,38 +471,133 @@ export class World {
     if (placed > 0) eventBus.emit(EVT.LOG, `陨星铁母坠落，${placed}团天外真金散落剑域！`);
   }
 
-  /** 第10天天劫：边界向内收缩一格 */
+  /** 第10天天劫：边界向内收缩一格 + 全领域落雷 (v2.1.0：不再墙杀；场地缩到目标尺寸后不再缩墙/落雷，靠天劫临时杀性斗至最后一柄，给特效展示空间) */
   shrink(): void {
     const b = this.bounds;
-    const killList: string[] = [];
-    const markWall = (x: number, y: number) => {
-      if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return;
-      this.walls[y][x] = true;
-      this.wallSet.add(this.cellKey(x, y));
-      // 被吞噬区域的食物随之湮灭 (不占食物配额，也不再被采气)
-      if (this.food[y][x] > 0) {
-        this.food[y][x] = 0;
-        this.foodCount--;
-        this.foodSet.delete(this.cellKey(x, y));
+    // v2.1.0：已到最终场地（4×4）→ 不再缩墙、不再落雷——决胜交由天劫临时杀性驱动的剑斗（防天雷误杀，特效已随收缩展示）
+    if (this.shrunkSpanX <= this.config.shrinkTargetSpan && this.shrunkSpanY <= this.config.shrinkTargetSpan) return;
+    // 尚未缩到目标场地（4×4）→ 继续收缩：边缘剑意向内挤入（被占则争斗）
+    {
+      // v2.1.0：新边界 = 向内收一格；宽度/高度缩到 ≤2 时钳制到中心单格（避免 2x2→0x0 边界反转）
+      const cx = Math.floor((b.minX + b.maxX) / 2);
+      const cy = Math.floor((b.minY + b.maxY) / 2);
+      const nb = { minX: b.minX + 1, minY: b.minY + 1, maxX: b.maxX - 1, maxY: b.maxY - 1 };
+      if (nb.minX > nb.maxX) { nb.minX = cx; nb.maxX = cx; }
+      if (nb.minY > nb.maxY) { nb.minY = cy; nb.maxY = cy; }
+      // 新边界之外的旧区域全部化作壁垒：食物湮灭、剑意被困
+      const trapped: SwordAgent[] = [];
+      for (let y = b.minY; y <= b.maxY; y++) {
+        for (let x = b.minX; x <= b.maxX; x++) {
+          if (x >= nb.minX && x <= nb.maxX && y >= nb.minY && y <= nb.maxY) continue;
+          this.walls[y][x] = true;
+          this.wallSet.add(this.cellKey(x, y));
+          // 被吞噬区域的食物随之湮灭 (不占食物配额，也不再被采气)
+          if (this.food[y][x] > 0) {
+            this.food[y][x] = 0;
+            this.foodCount--;
+            this.foodSet.delete(this.cellKey(x, y));
+          }
+          const sid = this.grid[y][x];
+          if (sid) {
+            const s = this.swords.get(sid);
+            if (s) trapped.push(s);
+          }
+        }
       }
+      this.bounds = nb;
+      // v2.1.0：不再墙杀——边缘剑意向内挤入：先原位向中心退一步（层层压缩、保持分布）；
+      // 目标被占 → 壁垒相逼，直接争斗（天劫期间血亲亦相争）；败者弹开，无处立足者才陨落
+      let squeezed = 0;
+      let perished = 0;
+      let clashed = 0;
+      for (const s of trapped) {
+        const p = s.state.position;
+        let tx = p.x;
+        let ty = p.y;
+        if (p.x === nb.minX - 1) tx = p.x + 1; // 曾贴左壁 → 右移一步
+        else if (p.x === nb.maxX + 1) tx = p.x - 1; // 曾贴右壁 → 左移一步
+        if (p.y === nb.minY - 1) ty = p.y + 1; // 曾贴上壁 → 下移一步
+        else if (p.y === nb.maxY + 1) ty = p.y - 1; // 曾贴下壁 → 上移一步
+        let moved = false;
+        if (this.inBounds(tx, ty) && !this.isWall(tx, ty) && !this.grid[ty][tx]) {
+          if (this.grid[p.y][p.x] === s.state.id) this.grid[p.y][p.x] = null;
+          this.grid[ty][tx] = s.state.id;
+          s.state.position = { x: tx, y: ty };
+          squeezed++;
+          moved = true;
+        } else if (this.inBounds(tx, ty) && !this.isWall(tx, ty)) {
+          // 目标被占 → 壁垒相逼，争斗一场（天劫期间血亲亦相争）
+          const occId = this.grid[ty][tx];
+          const occupant = occId ? this.swords.get(occId) : undefined;
+          if (occupant && (!this.kinProtected() || !this.isKin(s, occupant))) {
+            const result = resolveBattle(s, occupant);
+            clashed++;
+            if (result.defenderDied) {
+              s.behavior.killCount++;
+              this.removeSword(occupant.state.id);
+              if (this.grid[p.y][p.x] === s.state.id) this.grid[p.y][p.x] = null;
+              this.grid[ty][tx] = s.state.id;
+              s.state.position = { x: tx, y: ty };
+              squeezed++;
+              moved = true;
+            }
+          }
+        }
+        if (!moved) {
+          const cell = this.findSqueezeCell();
+          if (cell) {
+            const { x: ox, y: oy } = s.state.position;
+            if (this.grid[oy][ox] === s.state.id) this.grid[oy][ox] = null;
+            this.grid[cell.y][cell.x] = s.state.id;
+            s.state.position = { x: cell.x, y: cell.y };
+            squeezed++;
+          } else {
+            this.removeSword(s.state.id);
+            perished++;
+          }
+        }
+      }
+      eventBus.emit(EVT.LOG, `天劫收束，壁垒向内收缩，${squeezed}道剑意被逼向中心（相斗${clashed}场），${perished}道无处立足化作混沌尘埃……`);
+    }
+    // 全领域落雷（随收缩阶段执行——特效展示 + 压力）；道数受场地面积钳制：区域越小越稀疏
+    const lb = this.bounds;
+    const rings = Math.floor((this.config.width - this.shrunkSpanX) / 2);
+    const volley = Math.min(
+      TRIBULATION_LIGHTNING_BASE + Math.floor(rings / TRIBULATION_LIGHTNING_RAMP),
+      Math.max(0, Math.floor((this.shrunkSpanX * this.shrunkSpanY) / 8)),
+    );
+    for (let i = 0; i < volley; i++) {
+      const x = randomInt(lb.minX, lb.maxX);
+      const y = randomInt(lb.minY, lb.maxY);
+      if (this.isWall(x, y)) continue;
       const sid = this.grid[y][x];
-      if (sid) killList.push(sid);
-    };
-    // 四条边
-    for (let x = b.minX; x <= b.maxX; x++) {
-      markWall(x, b.minY);
-      markWall(x, b.maxY);
+      if (!sid) continue;
+      const s = this.swords.get(sid);
+      if (!s) continue;
+      s.state.hp -= TRIBULATION_LIGHTNING_DMG;
+      s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
+      if (s.state.hp <= 0 || s.state.energy <= 0) {
+        this.removeSword(s.state.id);
+      } else {
+        eventBus.emit(EVT.THUNDER, { x, y, element: s.state.genome.element });
+      }
     }
-    for (let y = b.minY + 1; y <= b.maxY - 1; y++) {
-      markWall(b.minX, y);
-      markWall(b.maxX, y);
+  }
+
+  /** 天劫向内挤入：在新边界内寻找最靠中心的空位 (挤向核心，逼迫剑意争斗)；找不到返回 null */
+  private findSqueezeCell(): { x: number; y: number } | null {
+    const b = this.bounds;
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let y = b.minY; y <= b.maxY; y++) {
+      for (let x = b.minX; x <= b.maxX; x++) {
+        if (this.isWall(x, y) || this.grid[y][x]) continue;
+        const d = Math.abs(x - cx) + Math.abs(y - cy);
+        if (!best || d < best.d) best = { x, y, d };
+      }
     }
-    b.minX++;
-    b.minY++;
-    b.maxX--;
-    b.maxY--;
-    for (const id of killList) this.removeSword(id);
-    eventBus.emit(EVT.LOG, `天劫收束，剑域壁垒向内收缩，${killList.length}道剑意化作混沌尘埃……`);
+    return best ? { x: best.x, y: best.y } : null;
   }
 
   get shrunkSpanX(): number {
@@ -502,12 +608,9 @@ export class World {
     return this.bounds.maxY - this.bounds.minY + 1;
   }
 
-  /** 天劫是否应当结束 */
+  /** 天劫是否应当结束 (v2.1.0：斗至最后一柄——只剩 1 柄即止；场地缩到目标尺寸后不再收缩，靠天劫临时杀性决胜) */
   isTribulationOver(): boolean {
-    return (
-      this.swords.size <= 1 ||
-      (this.shrunkSpanX <= this.config.shrinkTargetSpan && this.shrunkSpanY <= this.config.shrinkTargetSpan)
-    );
+    return this.swords.size <= 1;
   }
 
   // ===== 生态序列化 (续档恢复用) =====

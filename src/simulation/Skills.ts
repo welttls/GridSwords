@@ -1,7 +1,7 @@
 import type { World } from './World';
 import type { SwordAgent } from './SwordAgent';
 import type { Element, Genome } from '../types';
-import { MAX_HP, BUFF_CAST_CHANCE, MIND_CAST_MULT } from '../constants';
+import { MAX_HP, BUFF_CAST_CHANCE, MIND_CAST_MULT, KILL_HEAL_PCT } from '../constants';
 import { eventBus, EVT } from '../utils/eventBus';
 import { clamp, randomInt } from '../utils/mathUtils';
 
@@ -292,8 +292,8 @@ export function castSkill(
       let hit = 0;
       for (const other of world.swords.values()) {
         if (other.state.id === st.id) continue;
-        // v1.12.0：血亲不相攻——AoE 不伤同源一脉
-        if (world.isKin(agent, other)) continue;
+        // v1.12.0：血亲不相攻——AoE 不伤同源一脉；v2.1.0 天劫期间血亲亦相争
+        if (world.kinProtected() && world.isKin(agent, other)) continue;
         const d = Math.abs(other.state.position.x - x) + Math.abs(other.state.position.y - y);
         if (d <= r) {
           damageSword(agent, other, Math.round(dmgBase * (s.dmgMult ?? 1.5) * 0.8));
@@ -359,8 +359,8 @@ function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range:
     const id = world.swordIdAt(x, y);
     if (id) {
       const other = world.swords.get(id);
-      // v1.12.0：血亲不相攻——弹道/光束不伤同源一脉
-      if (other && other.state.id !== st.id && !world.isKin(agent, other)) {
+      // v1.12.0：血亲不相攻——弹道/光束不伤同源一脉；v2.1.0 天劫期间血亲亦相争
+      if (other && other.state.id !== st.id && (!world.kinProtected() || !world.isKin(agent, other))) {
         damageSword(agent, other, Math.round(dmg * (0.85 + Math.random() * 0.3)));
         if (lifesteal > 0) {
           st.hp = Math.min(MAX_HP, st.hp + Math.round(dmg * lifesteal));
@@ -385,7 +385,7 @@ function damageSword(attacker: SwordAgent, other: SwordAgent, dmg: number): void
       const { x, y } = other.state.position;
       const corpseValue = Math.max(4, other.state.energy * 0.4);
       attacker.state.energy += other.state.energy * 0.5; // 以战养战，夺敌灵机
-      attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + 5); // 胜者回气
+      attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + Math.round(MAX_HP * KILL_HEAL_PCT)); // v2.1.0 胜者回气 15% 上限
       // 寄灵：化敌为剑子（罕有能力，同近战路径）
       if (attacker.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
         const converted = attacker.world.spawnParasite(attacker, x, y);
