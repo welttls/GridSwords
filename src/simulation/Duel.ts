@@ -119,6 +119,10 @@ function skillToTechnique(s: SwordSkill, maxHp: number): DuelTechnique {
     case 'convert':
       return { ...base, kind: 'recover', dmgMult: 0.3, hits: 1, critBonus: 0, energyCost: s.energyCost, heal: Math.round(maxHp * (s.healPct ?? 0.25)), recoverEnergy: 25 };
     case 'buff':
+      // v2.2.1：攻防双效 buff（如剑心通明 buffAtk+buffDef）在大比中走守御，保留防御价值；纯攻击 buff 才转快剑二连击
+      if (s.buffAtk && s.buffDef) {
+        return { ...base, kind: 'guard', dmgMult: 0.6, hits: 1, critBonus: 0, energyCost: s.energyCost, heal: 16, guard: true };
+      }
       if (s.buffAtk) return { ...base, kind: 'quick', dmgMult: 0.7, hits: 2, critBonus: 0.1, energyCost: s.energyCost };
       return { ...base, kind: 'guard', dmgMult: 0.6, hits: 1, critBonus: 0, energyCost: s.energyCost, heal: (s.buffDef ?? 0) >= 1.5 ? 16 : 6, guard: true };
   }
@@ -421,7 +425,8 @@ export class Duel {
           dmg = Math.round(dmg * 1.5);
         }
         // 暴击：攻伐 + 杀性驱动 (凶悍之剑易出重创)
-        const critChance = tech.critBonus + this.clamp(a.sharp * 0.02 + a.aggr * 0.15, 0, 0.4);
+        // v2.2.1：对总和 clamp 至 0.4——原只 clamp 第二项，洞幽斩+满攻满杀实际可达 0.65（与文档口径 0.4 不符）
+        const critChance = this.clamp(tech.critBonus + a.sharp * 0.02 + a.aggr * 0.15, 0, 0.4);
         if (Math.random() < critChance) {
           crit = true;
           dmg = Math.round(dmg * 1.5);

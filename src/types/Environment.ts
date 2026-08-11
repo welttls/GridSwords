@@ -15,7 +15,6 @@ export interface WorldConfig {
 export interface WorldModifiers {
   foodRegenMult: number;      // 庚金之气生成倍率
   speedBonus: number;         // 全体速度加成
-  mutationMult: number;       // 分裂时突变率倍率
   mutationBias: { stat: 'speed' | 'toughness'; rateMult: number; sideEffect?: 'speedDown' } | null;
   temperature: 'normal' | 'cold' | 'breeze';
   thunderstorm: boolean;      // 雷劫

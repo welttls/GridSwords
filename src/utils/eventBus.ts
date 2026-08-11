@@ -2,11 +2,8 @@
 export const EVT = {
   LOG: 'log',                       // 事件日志
   DAY_START: 'day-start',           // 新的一天开始
-  DAY_CHANGE: 'day-change',
   POP_CHANGE: 'pop-change',         // 种群数量变化
   TRIBULATION_END: 'tribulation-end',
-  BATTLE_END: 'battle-end',
-  SAVE: 'save',
   // —— 粒子事件 (仅渲染端监听，headless 无副作用) ——
   BATTLE_HIT: 'battle-hit',         // 剑体碰撞火花
   SPLIT: 'split',                   // 分化衍生灵光

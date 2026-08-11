@@ -43,6 +43,9 @@ const SFX_THROTTLE: Partial<Record<SfxId, number>> = {
   thunder: 400,
 };
 
+/** 一次性音效增益节点最长寿命 (ms)——所有合成音效最长约 1.9s（emerge 琶音），尾部放宽到 2.5s 后断开防泄漏 */
+const SFX_TAIL_MS = 2500;
+
 class AudioManager {
   private ctx: AudioContext | null = null;
   private sfxGain: GainNode | null = null;
@@ -178,22 +181,6 @@ class AudioManager {
     this.bgmPlayingTrack = null;
   }
 
-  /** 暂停 BGM（跟随游戏暂停） */
-  pauseBgm(): void {
-    if (this.bgmPaused || !this.bgmEl) return;
-    this.bgmPaused = true;
-    this.bgmEl.pause();
-  }
-
-  /** 恢复 BGM */
-  resumeBgm(): void {
-    if (!this.bgmPaused) return;
-    this.bgmPaused = false;
-    if (this.musicEnabled && this.currentTrack && this.bgmEl) {
-      this.bgmEl.play().catch(() => {});
-    }
-  }
-
   /** 音量渐变（50ms 步进） */
   private rampVolume(el: HTMLAudioElement, to: number, ms: number, onDone?: () => void): void {
     if (this.fadeTimer) {
@@ -230,8 +217,14 @@ class AudioManager {
     g.gain.value = vol;
     g.connect(this.sfxGain);
     playSfxSynth(this.ctx, g, id);
-    // 一次性增益节点：合成结束后自动断开回收
-    g.gain.setValueAtTime(vol, this.ctx.currentTime);
+    // v2.2.1：合成结束后显式断开增益节点——原实现从不 disconnect，外层 g 永久挂在音频图上（每小时可泄漏数千 GainNode）
+    window.setTimeout(() => {
+      try {
+        g.disconnect();
+      } catch {
+        // 已断开 / 上下文已关闭：忽略
+      }
+    }, SFX_TAIL_MS);
   }
 
   private ensureCtx(): void {

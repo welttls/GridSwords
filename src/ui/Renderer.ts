@@ -105,8 +105,11 @@ export class WorldRenderer {
     eventBus.off(EVT.EAT, this.hEat);
     eventBus.off(EVT.THUNDER, this.hThunder);
     eventBus.off(EVT.SKILL, this.hSkill);
-    // 清理残留粒子
-    for (const p of this.particles) this.particleLayer.removeChild(p.g);
+    // 清理残留粒子 (v2.2.1：Graphics 显式 destroy 释放 GPU 资源)
+    for (const p of this.particles) {
+      this.particleLayer.removeChild(p.g);
+      p.g.destroy();
+    }
     this.particles.length = 0;
     // 清理飘字 (Pixi Text 需显式 destroy 防泄漏)
     for (const f of this.floatTexts) {
@@ -114,6 +117,11 @@ export class WorldRenderer {
       f.t.destroy();
     }
     this.floatTexts.length = 0;
+    // v2.2.1：销毁常驻 Graphics 并从舞台移除容器，防止旧场景内容残留在 stage
+    this.bg.destroy();
+    this.g.destroy();
+    this.eg.destroy();
+    this.container.removeFromParent?.();
   }
 
   /** 设置选中剑意 (绘制高亮框) */
@@ -128,6 +136,7 @@ export class WorldRenderer {
       p.life -= dt;
       if (p.life <= 0) {
         this.particleLayer.removeChild(p.g);
+        p.g.destroy(); // v2.2.1：显式 destroy 释放 GPU 资源
         this.particles.splice(i, 1);
         continue;
       }

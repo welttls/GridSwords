@@ -8,6 +8,8 @@ export interface BattleResult {
   defenderDied: boolean;
   /** 进攻方反震伤害 */
   recoil: number;
+  /** v2.2.1：进攻方因反震而亡（厚土反震等）——调用方须立即移除，防「僵尸剑」 */
+  attackerDied: boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
     defender.behavior.fightsSurvived++;
     defender.counterReady = true;
     attacker.state.hp -= 0.5; // 扑空反震，不 clamp 回 1（残血不再“回血”）
-    return { damage: 0, defenderDied: false, recoil: 0.5 };
+    return { damage: 0, defenderDied: false, recoil: 0.5, attackerDied: attacker.state.hp <= 0 };
   }
 
   const atk = attacker.effectiveSharpness();
@@ -55,7 +57,7 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
     attacker.state.energy += gained;
     // v2.1.0：以战养战——击杀回血 15% 上限（原 +5 固定），胜者不再轻易被捡漏
     attacker.state.hp = Math.min(maxHpOf(attacker.state), attacker.state.hp + Math.round(maxHpOf(attacker.state) * KILL_HEAL_PCT));
-    return { damage, defenderDied: true, recoil: 0 };
+    return { damage, defenderDied: true, recoil: 0, attackerDied: false };
   }
 
   // v2.0.0：木系「毒木反噬」——淬毒木剑被攻击时，攻击者反中毒（木系温和不追杀，靠毒反噬磨敌，被动击杀路径）
@@ -78,5 +80,5 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
     defender.behavior.killCount++;
   }
   attacker.state.energy -= damage * 0.2; // 出招亦耗神
-  return { damage, defenderDied: false, recoil };
+  return { damage, defenderDied: false, recoil, attackerDied: attacker.state.hp <= 0 };
 }

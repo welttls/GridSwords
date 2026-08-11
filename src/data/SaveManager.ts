@@ -1,4 +1,5 @@
 import type { Element, Genome, RankedSword, SwordState } from '../types';
+import type { World } from '../simulation/World'; // v2.2.1：type-only——GameSave.eco 与 exportEcoState 类型联动（含 wallExpiry）
 import { SAVE_KEY } from '../constants';
 
 /** 鉴定阶段持久化数据 (刷新后可重建「剑成鉴定」界面) */
@@ -48,13 +49,7 @@ export interface GameSave {
   rootId: string | null;
   maxGeneration: number;
   /** 生态状态 (边界/庚金/火墙/天劫开关，续档恢复用) */
-  eco?: {
-    bounds: { minX: number; minY: number; maxX: number; maxY: number };
-    food: [number, number, number][];
-    walls: [number, number][];
-    spawnFood: boolean;
-    isShrinking: boolean;
-  } | null;
+  eco?: ReturnType<World['exportEcoState']> | null;
   // —— 中断续玩：记录当前所处阶段 (鉴定/大比，刷新后可回到原界面) ——
   pendingScene: 'appraisal' | 'tournament' | null;
   pendingAppraisal?: PendingAppraisal | null;
@@ -94,7 +89,9 @@ export class SaveManager {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return defaultSave();
       const parsed = JSON.parse(raw) as GameSave;
-      if (!parsed || parsed.version !== 1) return defaultSave();
+      if (!parsed || typeof parsed.version !== 'number') return defaultSave();
+      // v2.2.1：未知高版本存档不整档静默丢弃——保留数据按当前结构兼容读取（缺失字段由 defaultSave 兜底）
+      if (parsed.version > 1) console.warn('[炼剑] 检测到更高版本存档 (v' + parsed.version + ')，按当前版本兼容读取，部分新字段可能缺失。');
       const save = { ...defaultSave(), ...parsed };
       // v2.0.0：万剑谱兜底（旧档无此字段）
       if (!Array.isArray(save.swordCodex)) save.swordCodex = [];
@@ -114,7 +111,8 @@ export class SaveManager {
         if (ws.genome && !Array.isArray(ws.genome.affixes)) ws.genome.affixes = [];
         if (ws.mindRealm === undefined) ws.mindRealm = 0;
       }
-      if (!Array.isArray(save.materialCounts)) save.materialCounts = {};
+      // v2.2.1：materialCounts 是 Record 对象——Array.isArray(对象) 恒 false 导致每次读档把数据覆盖成 {}（刷新后炉材次数归零）→ 改类型判断
+      if (!save.materialCounts || typeof save.materialCounts !== 'object' || Array.isArray(save.materialCounts)) save.materialCounts = {};
       return save;
     } catch {
       return defaultSave();

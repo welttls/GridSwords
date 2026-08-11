@@ -10,7 +10,7 @@ export interface AffixDef {
 
 export const AFFIXES: AffixDef[] = [
   {
-    id: 'eat30',
+    id: 'eat30', // v2.2.1：id 为 v1.7.1 放宽门槛前的旧名（原门槛 30），现判定为采气 ≥ 20——以 desc 与 SwordAgent.recheckAffixes 为准
     name: '吞金成性',
     desc: '采气 ≥ 20 团。此后灵力消耗 -30%，吞吐如意。',
   },

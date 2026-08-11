@@ -44,11 +44,11 @@ export const MIND_REALMS = [
   { name: '忘我', hidden: 16 },
 ] as const;
 
-/** 晋升条件：只看击破（击杀数）达标即开悟下一境 (v2.0.0：仅击破；v2.1.0：门槛 1/3/6 → 2/3/5，洞玄/忘我更可达) */
+/** 晋升条件：只看击破（击杀数）达标即开悟下一境 (v2.0.0：仅击破；v2.1.0：门槛 1/3/6 → 2/3/5，洞玄/忘我更可达；v2.2.1：删除已不再读取的 battles 字段) */
 export const MIND_REALM_THRESHOLDS = [
-  { battles: 8, kills: 2 },
-  { battles: 20, kills: 3 },
-  { battles: 45, kills: 5 },
+  { kills: 2 },
+  { kills: 3 },
+  { kills: 5 },
 ] as const;
 
 /** 各境界精元消耗倍率 (剑心愈明，维持愈省；野外与大比共用) */

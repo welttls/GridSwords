@@ -31,7 +31,8 @@ export class RankingManager {
     history: RankedSword[],
     unlocked: string[],
   ): RankResult {
-    const list = [...history, sword]
+    // v2.2.1：按 id 去重，防同剑重复上榜（当前 uid 唯一未触发，纯防御）
+    const list = [...history.filter((h) => h.id !== sword.id), sword]
       .sort((a, b) => b.score - a.score || b.dayReached - a.dayReached)
       .slice(0, RankingManager.TOP_N);
     const rank = list.findIndex((s) => s.id === sword.id) + 1;

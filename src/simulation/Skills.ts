@@ -101,15 +101,6 @@ export const ELEMENT_TALENTS: Record<Element, SwordSkill[]> = {
   ],
 };
 
-/** 每行主天赋技能 (旧引用兼容) */
-export const ELEMENT_SKILLS: Record<Element, SwordSkill> = {
-  metal: ELEMENT_TALENTS.metal[0],
-  wood: ELEMENT_TALENTS.wood[0],
-  water: ELEMENT_TALENTS.water[0],
-  fire: ELEMENT_TALENTS.fire[0],
-  earth: ELEMENT_TALENTS.earth[0],
-};
-
 /** 词条衍生技能 */
 export const AFFIX_SKILLS: Record<string, SwordSkill> = {
   kill5: {
@@ -281,7 +272,8 @@ export function castSkill(
   switch (s.kind) {
     case 'projectile': {
       const target = enemy ?? agent.nearestTarget('sword');
-      const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
+      // v2.2.1：垂直对齐目标 (dx=0) 时保留 0，仅 dx=dy=0 才回退 facing——原 Math.sign(0)||1 会把弹道打向 +x 打偏
+      const dx = target ? (target.dx === 0 && target.dy === 0 ? (st.facing.x || 1) : Math.sign(target.dx)) : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
       hitLine(agent, world, dx, dy, s.range ?? 12, dmgBase * (s.dmgMult ?? 1.8), 0, !!s.pierce);
       eventBus.emit(EVT.SKILL, { kind: 'projectile', x, y, dx, dy, element: color, text: s.name, id: s.id });
@@ -311,7 +303,8 @@ export function castSkill(
     }
     case 'line': {
       const target = enemy ?? agent.nearestTarget('sword');
-      const dx = target ? Math.sign(target.dx) || 1 : (st.facing.x || 1);
+      // v2.2.1：同 projectile——垂直对齐目标不再被 Math.sign(0)||1 打偏
+      const dx = target ? (target.dx === 0 && target.dy === 0 ? (st.facing.x || 1) : Math.sign(target.dx)) : (st.facing.x || 1);
       const dy = target ? Math.sign(target.dy) : st.facing.y;
       const total = hitLine(agent, world, dx, dy, s.range ?? 16, dmgBase * (s.dmgMult ?? 2), s.affix === 'parasite' ? 0.5 : 0, !!s.pierce);
       eventBus.emit(EVT.SKILL, { kind: 'line', x, y, dx, dy, element: color, text: s.name, id: s.id });
@@ -429,9 +422,4 @@ export function tickBuffs(st: { buffAtkTicks?: number; buffAtkMult?: number; buf
     st.buffDefTicks--;
     if (st.buffDefTicks <= 0) { st.buffDefMult = undefined; st.buffDefTicks = undefined; }
   }
-}
-
-/** 计算伤害减免 (buffDef) */
-export function damageReduction(buffDefMult?: number): number {
-  return buffDefMult ? 1 / (1 + buffDefMult * 0.5) : 1;
 }

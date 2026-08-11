@@ -39,6 +39,9 @@ export class HUD {
   private compWildEl!: HTMLElement;
   /** 日志筛选：all=全部 / important=仅重要 */
   private logFilter: 'all' | 'important' = 'all';
+  /** v2.2.1：上次写入值缓存——仅变化时才写 DOM（原每帧写入 ~300 次/秒） */
+  private lastFurnaceEnabled: boolean | null = null;
+  private lastFeedRemaining: number | null = null;
 
   /** 日志中「聚焦剑意」的回调 */
   focusHandler: ((id: string) => void) | null = null;
@@ -296,11 +299,15 @@ export class HUD {
   }
 
   setFurnaceEnabled(enabled: boolean): void {
+    if (enabled === this.lastFurnaceEnabled) return; // v2.2.1：值未变不写 DOM
+    this.lastFurnaceEnabled = enabled;
     this.materialBtn.disabled = !enabled;
     this.materialBtn.classList.toggle('dimmed', !enabled);
   }
 
   setFeedState(remaining: number, onFeed: () => void): void {
+    if (remaining === this.lastFeedRemaining) return; // v2.2.1：值未变不写 DOM
+    this.lastFeedRemaining = remaining;
     this.feedBtn.disabled = remaining <= 0;
     this.feedBtn.classList.toggle('dimmed', remaining <= 0);
     this.feedBtn.textContent = `投食 ×${Math.max(0, remaining)}`;

@@ -85,7 +85,6 @@ export class World {
     this.modifiers = {
       foodRegenMult: 1,
       speedBonus: 0,
-      mutationMult: 1,
       mutationBias: null,
       temperature: 'normal',
       thunderstorm: false,
@@ -552,9 +551,14 @@ export class World {
           if (occupant && (!this.kinProtected() || !this.isKin(s, occupant))) {
             const result = resolveBattle(s, occupant);
             clashed++;
-            if (result.defenderDied) {
+            // v2.2.1：反震致死（厚土反震等）——困兽当场陨落，不再移走/留场成「僵尸剑」
+            if (result.attackerDied) {
+              s.die();
+              perished++;
+              moved = true; // 防止 !moved 分支再把尸体挤走
+            } else if (result.defenderDied) {
               s.behavior.killCount++;
-              this.removeSword(occupant.state.id);
+              occupant.die(); // v2.2.1：改走 die() 发 EVT.DEATH（死亡粒子/音效）
               if (this.grid[p.y][p.x] === s.state.id) this.grid[p.y][p.x] = null;
               this.grid[ty][tx] = s.state.id;
               s.state.position = { x: tx, y: ty };
@@ -572,7 +576,7 @@ export class World {
             s.state.position = { x: cell.x, y: cell.y };
             squeezed++;
           } else {
-            this.removeSword(s.state.id);
+            s.die(); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
             perished++;
           }
         }
@@ -602,7 +606,7 @@ export class World {
       s.state.hp -= TRIBULATION_LIGHTNING_DMG;
       s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
       if (s.state.hp <= 0 || s.state.energy <= 0) {
-        this.removeSword(s.state.id);
+        s.die(); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
       } else {
         eventBus.emit(EVT.THUNDER, { x, y, element: s.state.genome.element });
       }
@@ -644,6 +648,7 @@ export class World {
     bounds: { minX: number; minY: number; maxX: number; maxY: number };
     food: [number, number, number][];
     walls: [number, number][];
+    wallExpiry: { idx: number; remainTick: number }[];
     spawnFood: boolean;
     isShrinking: boolean;
   } {
@@ -657,10 +662,16 @@ export class World {
     for (const k of this.wallSet) {
       walls.push([k % this.config.width, Math.floor(k / this.config.width)]);
     }
+    // v2.2.1：火墙过期队列一并序列化（存剩余 tick，避免读档后火墙永久存在）
+    const wallExpiry = this.wallExpiry.map((w) => ({
+      idx: w.idx,
+      remainTick: Math.max(0, w.expireTick - this.tickCounter),
+    }));
     return {
       bounds: { ...this.bounds },
       food,
       walls,
+      wallExpiry,
       spawnFood: this.config.spawnFood,
       isShrinking: this.config.isShrinking,
     };
@@ -687,6 +698,11 @@ export class World {
       this.walls[y][x] = true;
       this.wallSet.add(this.cellKey(x, y));
     }
+    // v2.2.1：恢复火墙过期队列（旧档无此字段 → 空数组；有到期火墙按剩余 tick 重建，读档后不再永久存在）
+    this.wallExpiry = (eco.wallExpiry ?? []).map((w) => ({
+      idx: w.idx,
+      expireTick: this.tickCounter + w.remainTick,
+    }));
   }
 
   // ===== 主循环 =====

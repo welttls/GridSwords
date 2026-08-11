@@ -32,17 +32,6 @@ export function shuffle<T>(arr: readonly T[]): T[] {
   return a;
 }
 
-/** 线性插值 */
-export function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-/** 均值 */
-export function mean(arr: number[]): number {
-  if (arr.length === 0) return 0;
-  return arr.reduce((s, v) => s + v, 0) / arr.length;
-}
-
 /** 生成唯一 id */
 export function uid(prefix = 'sw'): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

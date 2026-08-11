@@ -166,9 +166,13 @@ export class Game {
       this.saveGame();
     }
     this.hideCanvas();
-    // P3：离开炼剑/大比场景时销毁渲染器，解绑其粒子监听
+    // P3：离开炼剑/大比场景时销毁渲染器与 HUD，解绑其监听
     this.renderer?.destroy?.();
     this.renderer = null;
+    this.hud?.destroy?.(); // v2.2.1：销毁 HUD，解绑 LOG 订阅（此前仅 buildForgeScene 销毁，离场后残留）
+    this.hud = null;
+    // v2.2.1：清空并销毁 Pixi 舞台残留（Pixi v7 removeChildren 只接受索引，需手动 destroy 返回的子对象）
+    for (const child of this.app.stage.removeChildren()) child.destroy();
     buildMenu(this.host, this);
   }
 
@@ -401,8 +405,9 @@ export class Game {
     this.hud.focusHandler = (id) => this.focusSword(id);
     this.refreshHudControls();
     this.mountCanvas(this.hud.canvasHost);
-    this.app.stage.removeChildren();
     this.renderer?.destroy?.();
+    // v2.2.1：先销毁旧渲染器再清空并销毁舞台残留（Pixi v7 removeChildren 只接受索引）
+    for (const child of this.app.stage.removeChildren()) child.destroy();
     this.renderer = new WorldRenderer(this.app.stage, GRID_WIDTH, GRID_HEIGHT, 10);
     this.frame = 0;
     if (this.world) {
@@ -1108,6 +1113,10 @@ export class Game {
     this.hideCanvas();
     this.renderer?.destroy?.();
     this.renderer = null;
+    this.hud?.destroy?.(); // v2.2.1：销毁 HUD，解绑 LOG 订阅
+    this.hud = null;
+    // v2.2.1：清空并销毁舞台残留（Pixi v7 removeChildren 只接受索引）
+    for (const child of this.app.stage.removeChildren()) child.destroy();
     buildAppraisal(this.host, this, data);
   }
 
@@ -1162,6 +1171,10 @@ export class Game {
     this.hideCanvas();
     this.renderer?.destroy?.();
     this.renderer = null;
+    this.hud?.destroy?.(); // v2.2.1：销毁 HUD，解绑 LOG 订阅
+    this.hud = null;
+    // v2.2.1：清空并销毁舞台残留（Pixi v7 removeChildren 只接受索引）
+    for (const child of this.app.stage.removeChildren()) child.destroy();
     const player = this.appraisedRanked;
     if (!player) {
       this.showMenu();
@@ -1200,6 +1213,7 @@ export class Game {
   }
 
   startTournament(oppId: string, artId: string, ui: BattleUI): void {
+    this.battleAccumulator = 0; // v2.2.1：开战清零，防上一战残量折算到首帧多步
     const opp = this.findOpponent(oppId);
     const playerState = this.battlePlayerState;
     const playerName = this.appraisedRanked?.name ?? '本命剑';

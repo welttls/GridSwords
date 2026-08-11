@@ -9,6 +9,9 @@ import { skillsFor } from '../simulation/Skills';
 import { maxHpOf, maxEnergyOf } from '../simulation/swordStats';
 import { TICKS_PER_DAY, TICKS_PER_SHICHEN, MIND_REALMS, MIND_REALM_THRESHOLDS } from '../constants';
 
+/** v2.2.1：当前打开的灵鉴弹窗——防快速连点多柄剑意时叠出多个弹窗 */
+let activeDetailOverlay: HTMLElement | null = null;
+
 const TIPS: Record<string, string> = {
   攻伐: '攻伐之力：碰撞伤害 = 攻伐 − 敌方坚固×0.5（至少 1 点）；攻伐亦增暴击之威。锋刃越利，日常维持耗神越多。',
   坚固: '防御之体：直接削弱所受伤害，反震亦轻。剑体越沉，行动越耗精元。',
@@ -31,6 +34,9 @@ const TIPS: Record<string, string> = {
 
 /** 点击剑意：展示其剑谱 / 状态 / 剑心 (属性悬浮有解释) */
 export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => void): void {
+  // v2.2.1：防重入——快速连点多柄剑意时先关闭既有灵鉴弹窗
+  activeDetailOverlay?.remove();
+  activeDetailOverlay = null;
   const s = agent.state;
   const body = el('div', 'sword-detail');
 
@@ -158,8 +164,12 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
 
   const overlay = openModal('剑意 · 灵鉴', body, {
     width: 440,
-    onClose,
+    onClose: () => {
+      activeDetailOverlay = null;
+      onClose?.();
+    },
   });
+  activeDetailOverlay = overlay;
 }
 
 function barRow(label: string, display: string, value: number, max: number, affixNote = ''): HTMLElement {

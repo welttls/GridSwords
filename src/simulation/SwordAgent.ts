@@ -33,13 +33,6 @@ const DIRS = [
 ];
 /** 输出层 4 方向索引 → DIRS 下标 (上/下/左/右) */
 const MOVES = [0, 1, 2, 3];
-/** 每个移动方向关联的感知方向 */
-const MOVE_DISCS = [
-  [0, 4, 5], // 上
-  [1, 6, 7], // 下
-  [2, 4, 6], // 左
-  [3, 5, 7], // 右
-];
 
 export class SwordAgent {
   state: import('../types').SwordState;
@@ -56,15 +49,6 @@ export class SwordAgent {
   /** v2.0.0：残血追击锁定——攻击未击杀时锁定目标，持续追杀至击杀/逃离 (运行时字段) */
   huntTargetId: string | null = null;
 
-  /** 宗门大比剑诀修饰 */
-  battleMods: {
-    firstStrike?: boolean;  // 首轮抢攻
-    counterStrike?: boolean; // 后手反击
-    agile?: boolean;        // 游斗
-    quick?: boolean;        // 快剑
-    thunder?: boolean;      // 雷引
-    noCost?: boolean;       // 斗剑台不耗能量
-  } = {};
   counterReady = false;
   /** 本 tick 是否有所行动 (移动/采气/碰撞)，影响精元消耗 */
   private actedThisTick = false;
@@ -286,15 +270,11 @@ export class SwordAgent {
     return { dx, dy };
   }
 
-  /** 有效攻伐 (受剑诀/词条/buff 影响) */
+  /** 有效攻伐 (受词条/buff 影响；v2.2.1：移除未启用的 battleMods 剑诀分支——宗门大比走 Duel Fighter，野外从不赋值) */
   effectiveSharpness(): number {
     let s = this.state.genome.sharpness;
     if (this.state.genome.affixes.includes('kill5')) s += 1.5; // 斩念成性
     if (this.state.buffAtkMult) s *= this.state.buffAtkMult;
-    if (this.battleMods.firstStrike && this.world.tickCounter < 50) s *= 1.2;
-    if (this.battleMods.agile) s *= 0.9;
-    if (this.battleMods.quick) s *= 1.1;
-    if (this.battleMods.thunder) s *= 1.15;
     if (this.counterReady) s *= 1.5;
     return s;
   }
@@ -403,7 +383,7 @@ export class SwordAgent {
           }
           // 击杀后立即移除防御者，防止其残留为「僵尸剑意」再行动一轮；
           // 先清格再推进，攻方方能占据目标格 (占用校验会拦截旧顺序)
-          this.world.removeSword(defender.state.id);
+          defender.die(); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
           this.world.moveSword(this, x, y);
           this.visitCurrent();
           return true;
@@ -423,6 +403,11 @@ export class SwordAgent {
     return true;
   }
 
+  /** v2.2.1：本 tick 内剑体/精元是否已尽（行动后立即查死，防「诈尸回春」/僵尸剑再动） */
+  private isDead(): boolean {
+    return this.state.hp <= 0 || this.state.energy <= 0;
+  }
+
   /** 每 tick 一步 */
   tick(): void {
     this.state.age++;
@@ -433,18 +418,22 @@ export class SwordAgent {
     tickBuffs(this.state);
     const dir = this.decide();
     this.act(dir);
+    // v2.2.1：行动后立即查死——反震/碰撞致死不再继续追击或施放技能（原死亡检查在 tick 末尾，滞后一整步，wood 回春术可诈尸回正血）
+    if (this.isDead()) { this.die(); return; }
     // v2.0.0：残血追击加速——锁定追击时身法如风，每 tick 多追一步，追上逃逸之敌
     if (this.huntTargetId && this.huntDir()) {
       this.act(this.decide());
+      if (this.isDead()) { this.die(); return; }
     }
     // 无根水·身法加成：每 tick 有几率额外行动一步 (移动更迅疾，采气/避敌更快)
     const speedBonus = this.world.modifiers.speedBonus;
     if (speedBonus > 0 && Math.random() < speedBonus * 0.2) {
       const extraDir = this.decide();
       this.act(extraDir);
+      if (this.isDead()) { this.die(); return; }
     }
     // 剑意技能 (五行天赋 + 词条)：耗精元、有冷却
-    if (this.skillCd <= 0 && this.state.energy > 5) {
+    if (this.skillCd <= 0 && this.state.energy > 5 && !this.isDead()) {
       tryCastSkill(this, this.world, skillsFor(this.state.genome.element, this.state.genome.affixes, this.state.mindSkillIds));
     }
 
@@ -460,9 +449,8 @@ export class SwordAgent {
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
     if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
-    if (this.battleMods.agile) cost *= 0.5;   // 游斗：身法灵动
-    if (this.battleMods.quick) cost *= 0.8;   // 快剑：举重若轻
-    if (!this.battleMods.noCost) this.state.energy -= cost;
+    // v2.2.1：battleMods 剑诀修饰已移除（宗门大比走 Duel Fighter，野外从不赋值）
+    this.state.energy -= cost;
 
     // 缓慢回气 (v2.1.0：水系「生生不息」回血 ×2.0 保留，与采食回能 ×1.35 共同构成水系差异化)
     const regen = HP_REGEN_PER_TICK * (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1);
