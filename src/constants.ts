@@ -10,9 +10,9 @@ export const MEGA_FOOD_ENERGY = 60;
 export const MEGA_FOOD_COUNT = 4;
 
 // ===== 剑意 =====
-export const MAX_HP = 100;
+export const MAX_HP = 95; // v2.2.0：100→95（配合碰撞伤害提高，战斗可致死、击破有数；95 保种群存活）
 export const START_ENERGY = 70;
-export const START_HP = 100;
+export const START_HP = 95; // v2.2.0：随 MAX_HP 同步
 export const ENERGY_SPLIT_THRESHOLD = 80;
 export const BASE_ENERGY_CONSUMPTION = 0.0117; // 基础精元消耗 (随剑谱属性加成，见 SwordAgent)
 /** 静养 (不动) 时精元消耗倍率：约 7-8 日而竭 */
@@ -63,6 +63,8 @@ export const MIND_SWORD_SCALE = [1, 1.12, 1.25, 1.4] as const;
 export const MIND_REALM_DMG_REDUCTION = 0.12;
 /** 以战养战：击杀后回血比例 (v2.1.0：+5 固定 → 15% 上限，胜者不再轻易被捡漏) */
 export const KILL_HEAL_PCT = 0.15;
+/** 剑心升级上限加成 (v2.2.0)：每晋一境，剑体/精元上限 +50——凡心 100/80 → 通明 150/130 → 洞玄 200/180 → 忘我 250/230 */
+export const MIND_MAX_BONUS = 50;
 
 /** 剑心境界 → NN 结构 (输入 26、输出 4 固定，仅隐藏层随境界变化) */
 export function mindSizes(realm: number): number[] {
@@ -76,6 +78,8 @@ export const MAX_DAYS = 10;
 export const TICKS_PER_DAY = 960;    // 1x 时约 4 分钟/日
 export const TOTAL_TICKS = MAX_DAYS * TICKS_PER_DAY;
 export const SHRINK_INTERVAL_TICKS = TICKS_PER_SECOND * 2; // 每2秒收缩一格
+/** v2.2.0：天劫收缩日志节流——无实质事件(无争斗/无陨落)时每 3 次收缩（约 6 秒）报一次，防刷屏 */
+export const SHRINK_LOG_INTERVAL_TICKS = SHRINK_INTERVAL_TICKS * 3;
 export const SHRINK_TARGET_SPAN = 4; // v2.1.0：收缩到 4x4 即止（给落雷/战斗特效展示空间）；斗至最后一柄靠天劫临时杀性
 
 // ===== 天劫全领域天雷 (v2.1.0)：每收缩一格同步落雷 =====

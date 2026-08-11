@@ -1,6 +1,7 @@
 import type { Game } from '../Game';
 import type { Genome, Element } from '../types';
 import { el, clearNode } from '../utils/dom';
+import { audio } from '../audio/AudioManager';
 import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, ELEMENT_COLOR } from '../simulation/Genetics';
 import { affixName } from '../data/AffixDB';
@@ -494,6 +495,9 @@ export function buildTournament(
     },
     pushEvents: (events, p, n) => {
       for (const e of events) {
+        // 音频：暴击重击 / 大比胜负（end 事件的 actor 即胜者）
+        if (e.kind === 'crit') audio.playSfx('crit');
+        else if (e.kind === 'end') audio.playSfx(e.actor === 'player' ? 'win' : 'lose');
         const line = el('div', 'duel-log-line ' + e.kind + (e.actor === 'player' ? ' from-player' : ' from-npc'));
         line.textContent = e.text;
         logBox.appendChild(line);

@@ -21,7 +21,9 @@ import {
   MIND_REALMS,
   MIND_REALM_THRESHOLDS,
   MIND_ENERGY_MULT,
+  MIND_MAX_BONUS,
 } from '../constants';
+import { maxHpOf, maxEnergyOf } from './swordStats';
 import { clamp, randomInt, shuffle } from '../utils/mathUtils';
 
 /** 8 方向：上下左右 + 四对角 */
@@ -133,14 +135,14 @@ export class SwordAgent {
       }
       input.push(foodNear, swordNear, wallNear);
     }
-    input.push(clamp(this.state.energy / ENERGY_SPLIT_THRESHOLD, 0, 1));
-    input.push(clamp(this.state.hp / MAX_HP, 0, 1));
+    input.push(clamp(this.state.energy / maxEnergyOf(this.state), 0, 1));
+    input.push(clamp(this.state.hp / maxHpOf(this.state), 0, 1));
     return input;
   }
 
   /** 饥饿度：始终带饿意觅食，直到满灵力分化 */
   private hungerLevel(): number {
-    return clamp(1.1 - this.state.energy / ENERGY_SPLIT_THRESHOLD, 0, 1.1);
+    return clamp(1.1 - this.state.energy / maxEnergyOf(this.state), 0, 1.1);
   }
 
   /** 全盘扫描：寻找最近的指定目标 (曼哈顿距离) */
@@ -271,7 +273,7 @@ export class SwordAgent {
     // 杀性越高，放弃追击的血线越低、追击范围越大（温和系易罢手）
     const aggr = this.world.effectiveAggression(this.state.genome.aggression);
     const giveUpHp = 0.15 * (1 - aggr * 0.6); // 杀性 0.9→0.069 / 0.3→0.123
-    if (!other || other.state.id === this.state.id || (this.world.kinProtected() && this.world.isKin(this, other)) || this.state.hp / MAX_HP < giveUpHp) {
+    if (!other || other.state.id === this.state.id || (this.world.kinProtected() && this.world.isKin(this, other)) || this.state.hp / maxHpOf(this.state) < giveUpHp) {
       this.huntTargetId = null; // 目标陨落/血亲/自身重伤，放弃追击
       return null;
     }
@@ -355,6 +357,7 @@ export class SwordAgent {
     if (food > 0) {
       this.world.removeFood(x, y);
       // v2.0.0：水系「生生不息」——采食回能 ×1.35（感知高觅食强、吃得多回能多，防饿死；水存活前列，与土/火争前二）
+      // 注意：采食不钳制上限——分化阈值(=maxEnergy)在扣精元消耗后才检查，若 clamp 到阈值会锁死在 79.98 永不分化
       this.state.energy += food * (this.state.genome.element === 'water' ? 1.35 : 1);
       this.behavior.eatCount++;
       eventBus.emit(EVT.EAT, { x, y, intensity: food });
@@ -406,7 +409,7 @@ export class SwordAgent {
           return true;
         } else {
           // v2.0.0：残血追击——目标未死则锁定，趁胜追杀至击杀/逃离
-          if (this.state.hp / MAX_HP > 0.35) this.huntTargetId = defender.state.id;
+          if (this.state.hp / maxHpOf(this.state) > 0.35) this.huntTargetId = defender.state.id;
           this.behavior.waitCount++; // 反震退回原位
           return false;
         }
@@ -463,7 +466,7 @@ export class SwordAgent {
 
     // 缓慢回气 (v2.1.0：水系「生生不息」回血 ×2.0 保留，与采食回能 ×1.35 共同构成水系差异化)
     const regen = HP_REGEN_PER_TICK * (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1);
-    this.state.hp = Math.min(MAX_HP, this.state.hp + regen);
+    this.state.hp = Math.min(maxHpOf(this.state), this.state.hp + regen);
     if (this.state.hp < this.behavior.minHp) this.behavior.minHp = this.state.hp;
 
     // 中毒 (淬毒)：剑体持续溃烂
@@ -489,8 +492,8 @@ export class SwordAgent {
       return;
     }
 
-    // 能量达到阈值 → 分裂
-    if (this.state.energy >= ENERGY_SPLIT_THRESHOLD) {
+    // 能量达到阈值 → 分裂 (v2.2.0：分化阈值随剑心上限同步提高)
+    if (this.state.energy >= maxEnergyOf(this.state)) {
       this.trySplit();
     }
   }
@@ -509,7 +512,7 @@ export class SwordAgent {
 
     const placed = this.world.spawnChild(this, childGenome, childBrain);
     if (placed) {
-      this.state.energy = ENERGY_SPLIT_THRESHOLD / 2;
+      this.state.energy = maxEnergyOf(this.state) / 2;
       // 事件日志：元素突变 / 新世代
       this.world.emitSplitEvents(this, childGenome, genomeChanged(this.state.genome, childGenome), placed);
     }
@@ -542,10 +545,14 @@ export class SwordAgent {
     // 同步序列化快照，防存档读到扩容前的旧长度
     this.state.brainWeights = this.brain.getWeights();
     this.state.brainBiases = this.brain.getBiases();
-    // v2.1.0：顿悟回春——晋境瞬间剑体回满、精元恢复至至少 50（低于分化阈值 80，不立即分化），防顿悟后被捡漏
-    this.state.hp = MAX_HP;
-    if (this.state.energy < 50) this.state.energy = 50;
+    // v2.1.0：顿悟回春——晋境瞬间剑体回满、精元补满（低于分化阈值，不立即分化），防顿悟后被捡漏
+    // v2.2.0：晋境同时剑体/精元上限 +50（凡心 100/80 → 通明 150/130 → 洞玄 200/180 → 忘我 250/230）
+    this.state.maxHp = (this.state.maxHp ?? MAX_HP) + MIND_MAX_BONUS;
+    this.state.maxEnergy = (this.state.maxEnergy ?? ENERGY_SPLIT_THRESHOLD) + MIND_MAX_BONUS;
+    this.state.hp = maxHpOf(this.state);
+    this.state.energy = maxEnergyOf(this.state);
     const name = MIND_REALMS[next].name;
+    eventBus.emit(EVT.MIND, null); // 音频：剑心晋升「顿悟」
     // 剑心绝技：忘我固定大招；通明/洞玄 3 选 1（本命血脉弹窗选，外来随机）
     const skills = (this.state.mindSkillIds ??= []);
     if (next === MIND_REALMS.length - 1) {
@@ -611,6 +618,7 @@ export class SwordAgent {
     const add = (id: string, rare: boolean) => {
       if (g.affixes.includes(id)) return;
       g.affixes.push(id);
+      eventBus.emit(EVT.MIND, null); // 音频：悟得词条「顿悟」
       eventBus.emit(EVT.LOG, {
         text: `第${this.world.config.currentDay}日：一道剑意悟得「${affixName(id)}」！`,
         focusId: this.state.id,

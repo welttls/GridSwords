@@ -2,6 +2,7 @@ import type { World } from './World';
 import type { SwordAgent } from './SwordAgent';
 import type { Element, Genome } from '../types';
 import { MAX_HP, BUFF_CAST_CHANCE, MIND_CAST_MULT, KILL_HEAL_PCT } from '../constants';
+import { maxHpOf } from './swordStats';
 import { eventBus, EVT } from '../utils/eventBus';
 import { clamp, randomInt } from '../utils/mathUtils';
 
@@ -221,7 +222,7 @@ export function skillsFor(element: Element, affixes: string[], mindSkillIds?: st
 /** 触发技能 (headless 结算 + 渲染事件) */
 export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill[]): boolean {
   const st = agent.state;
-  const hpRatio = st.hp / MAX_HP;
+  const hpRatio = st.hp / maxHpOf(st);
   const energy = st.energy;
   const enemy = agent.nearestTarget('sword');
   // v1.12.0：剑心境界愈高，愈擅施法（触发率加成）
@@ -329,8 +330,8 @@ export function castSkill(
     }
     case 'heal':
     case 'convert': {
-      const heal = Math.round(MAX_HP * (s.healPct ?? 0.25));
-      st.hp = Math.min(MAX_HP, st.hp + heal);
+      const heal = Math.round(maxHpOf(st) * (s.healPct ?? 0.25));
+      st.hp = Math.min(maxHpOf(st), st.hp + heal);
       if (s.buffAtk) { st.buffAtkMult = s.buffAtk; st.buffAtkTicks = s.buffTicks; }
       eventBus.emit(EVT.SKILL, { kind: 'heal', x, y, element: color, text: s.name });
       eventBus.emit(EVT.LOG, `第${world.config.currentDay}日：一道剑意施展「${s.name}」，剑体回复${heal}点！`);
@@ -363,7 +364,7 @@ function hitLine(agent: SwordAgent, world: World, dx: number, dy: number, range:
       if (other && other.state.id !== st.id && (!world.kinProtected() || !world.isKin(agent, other))) {
         damageSword(agent, other, Math.round(dmg * (0.85 + Math.random() * 0.3)));
         if (lifesteal > 0) {
-          st.hp = Math.min(MAX_HP, st.hp + Math.round(dmg * lifesteal));
+          st.hp = Math.min(maxHpOf(st), st.hp + Math.round(dmg * lifesteal));
         }
         hit++;
         if (!pierce) break; // 非贯穿：只命中首个
@@ -385,7 +386,7 @@ function damageSword(attacker: SwordAgent, other: SwordAgent, dmg: number): void
       const { x, y } = other.state.position;
       const corpseValue = Math.max(4, other.state.energy * 0.4);
       attacker.state.energy += other.state.energy * 0.5; // 以战养战，夺敌灵机
-      attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + Math.round(MAX_HP * KILL_HEAL_PCT)); // v2.1.0 胜者回气 15% 上限
+      attacker.state.hp = Math.min(maxHpOf(attacker.state), attacker.state.hp + Math.round(maxHpOf(attacker.state) * KILL_HEAL_PCT)); // v2.1.0 胜者回气 15% 上限
       // 寄灵：化敌为剑子（罕有能力，同近战路径）
       if (attacker.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
         const converted = attacker.world.spawnParasite(attacker, x, y);

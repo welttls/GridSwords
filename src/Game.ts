@@ -19,6 +19,7 @@ import { SWORD_ARTS } from './data/SwordArts';
 import { NPC_OPPONENTS } from './data/NPCs';
 import { randomGenome, genomeSimilarity, genomeSum, ELEMENT_LABEL, randomWildGenome, randomMildGenome, randomFierceGenome } from './simulation/Genetics';
 import { eventBus, EVT } from './utils/eventBus';
+import { audio } from './audio/AudioManager';
 import { uid, nowDateStr, randomInt } from './utils/mathUtils';
 import { openModal, toast } from './ui/modals';
 import { el, clearNode } from './utils/dom';
@@ -45,10 +46,13 @@ import {
   FOOD_DROP_BATCH,
   EMERGENCE_THRESHOLD,
   EMERGENCE_MIN_GEN,
+  MAX_HP,
+  ENERGY_SPLIT_THRESHOLD,
+  MIND_MAX_BONUS,
   mindSizes,
 } from './constants';
 import { Duel } from './simulation/Duel';
-import { MIND_SKILL_BY_ID } from './simulation/Skills';
+import { MIND_SKILL_BY_ID, MIND_SKILL_POOLS } from './simulation/Skills';
 
 type SceneName = 'menu' | 'embryo' | 'forge' | 'appraisal' | 'tournament';
 
@@ -149,6 +153,7 @@ export class Game {
 
   // ================= 场景 =================
   showMenu(): void {
+    audio.setBgm('menu'); // 主菜单 BGM
     this.scene = 'menu';
     this.host.classList.remove('forge-screen');
     this.paused = true;
@@ -168,6 +173,7 @@ export class Game {
   }
 
   showEmbryoSelect(): void {
+    audio.preload('forge'); // 预载剑意曲，进入炼剑立即出声
     this.scene = 'embryo';
     this.host.classList.remove('forge-screen');
     this.hideCanvas();
@@ -382,6 +388,7 @@ export class Game {
 
   // ================= 炼剑主界面 =================
   private buildForgeScene(): void {
+    audio.setBgm('forge'); // 剑意阶段 BGM
     this.scene = 'forge';
     this.host.classList.add('forge-screen');
     clearNode(this.host);
@@ -697,10 +704,19 @@ export class Game {
     const range = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
     let spawned = 0;
     let label = '默许天意';
-    const spawnBatch = (n: number, make: () => Genome) => {
+    // v2.2.0：凶潮投洞玄（剑心 2 级）剑意——NN 用洞玄容量、上限随境界抬升、随机洞玄绝技，打破种群优势
+    const spawnBatch = (n: number, make: () => Genome, opts?: { mindRealm?: number }) => {
       for (let i = 0; i < n; i++) {
-        const brain = new SimpleNN(NN_LAYERS);
-        if (w.spawnWildSword(make(), brain)) spawned++;
+        const realm = opts?.mindRealm ?? 0;
+        const brain = new SimpleNN(realm > 0 ? mindSizes(realm) : NN_LAYERS);
+        let mindSkillIds: string[] | undefined;
+        if (realm > 0) {
+          const pool = MIND_SKILL_POOLS[realm - 1] ?? [];
+          if (pool.length > 0) mindSkillIds = [pool[randomInt(0, pool.length - 1)].id];
+        }
+        const maxHp = MAX_HP + MIND_MAX_BONUS * realm;
+        const maxEnergy = ENERGY_SPLIT_THRESHOLD + MIND_MAX_BONUS * realm;
+        if (w.spawnWildSword(make(), brain, { mindRealm: realm, maxHp, maxEnergy, mindSkillIds })) spawned++;
       }
     };
     switch (kind) {
@@ -713,7 +729,7 @@ export class Game {
         label = '剑潮汹涌';
         break;
       case 'fierce':
-        spawnBatch(range(2, 3), () => randomFierceGenome(day));
+        spawnBatch(range(2, 3), () => randomFierceGenome(day), { mindRealm: 2 }); // v2.2.0：凶潮投洞玄剑意
         label = '天外凶潮';
         break;
       case 'none':
@@ -728,6 +744,7 @@ export class Game {
           spawnBatch(range(6, 8), () => randomWildGenome(day));
           label = '剑潮汹涌';
         } else {
+          // auto 默许天意：凶潮为普通凡心（洞玄凶剑只限玩家主动选「天外凶潮」，防无干预局被高境剑碾压致种群崩溃）
           spawnBatch(range(2, 3), () => randomFierceGenome(day));
           label = '天外凶潮';
         }
@@ -852,6 +869,7 @@ export class Game {
             focusId: this.emergenceTargetId ?? undefined,
             important: true,
           });
+          eventBus.emit(EVT.EMERGENCE, null); // 音频：涌现庆祝
           toast('✨ 涌现：一道能自续的稳定剑意血脉诞生了！点击聚焦', 8000, () => {
             // P1-2 相关：捕获当时的代表剑 id，避免跨局误聚焦新局的剑
             const targetId = this.emergenceTargetId;
@@ -1083,6 +1101,8 @@ export class Game {
   }
 
   private showAppraisal(data: AppraisalData): void {
+    audio.setBgm(null); // 鉴定：静默仪式感
+    audio.preload('battle'); // 预载大比曲，进入试剑台立即出声
     this.scene = 'appraisal';
     this.host.classList.remove('forge-screen');
     this.hideCanvas();
@@ -1136,6 +1156,7 @@ export class Game {
 
   // ================= 宗门大比 =================
   private showTournament(): void {
+    audio.setBgm('battle'); // 宗门大比 BGM
     this.scene = 'tournament';
     this.host.classList.remove('forge-screen');
     this.hideCanvas();

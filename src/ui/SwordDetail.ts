@@ -6,6 +6,7 @@ import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, strategyLabel } from '../simulation/Genetics';
 import { affixDesc, affixName } from '../data/AffixDB';
 import { skillsFor } from '../simulation/Skills';
+import { maxHpOf, maxEnergyOf } from '../simulation/swordStats';
 import { TICKS_PER_DAY, TICKS_PER_SHICHEN, MIND_REALMS, MIND_REALM_THRESHOLDS } from '../constants';
 
 const TIPS: Record<string, string> = {
@@ -15,7 +16,7 @@ const TIPS: Record<string, string> = {
   感知: '灵识：探查范围 = 感知×2 格；与对手比感知，感知高者闪避来剑更易。',
   杀性: '好战之心：越高越主动寻敌；杀性凶者易出暴击重创。',
   策略: '合击者喜集群行动、遥相呼应；孤狼者独来独往、不愿近人。',
-  精元: '养分：移动、碰撞、分化皆耗精元，精元枯竭则剑体崩解；剑谱属性越高，每日维持耗神越多。精元满 80 即分化剑子（新分化后回落到 40）。',
+  精元: '养分：移动、碰撞、分化皆耗精元，精元枯竭则剑体崩解；剑谱属性越高，每日维持耗神越多。精元满上限即分化剑子（新分化后回落到一半）；剑心晋境精元上限 +50。',
   剑体: '剑意之体：剑体归零则剑意消亡。',
   存续: '自诞生起存活的时日（1 日 = 12 时辰，1 时辰 = 8 刻）。',
   足迹: '踏足过的剑域格数。',
@@ -120,8 +121,8 @@ export function openSwordDetail(game: Game, agent: SwordAgent, onClose?: () => v
     }
   }
   const status: [string, string][] = [
-    ['精元', `${s.energy.toFixed(0)} / 80`],
-    ['剑体', `${s.hp.toFixed(0)} / 100`],
+    ['精元', `${s.energy.toFixed(0)} / ${maxEnergyOf(s)}`],
+    ['剑体', `${s.hp.toFixed(0)} / ${maxHpOf(s)}`],
     ['存续', `${formatSurvival(s.age)}`],
     ['足迹', `${b.cellsVisited} 格`],
     ['采气', `${b.eatCount} 团`],

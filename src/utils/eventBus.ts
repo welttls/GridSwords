@@ -15,6 +15,7 @@ export const EVT = {
   THUNDER: 'thunder',               // 天劫雷光
   EMERGENCE: 'emergence',           // 涌现庆典
   SKILL: 'skill',                   // 剑意技能特效
+  MIND: 'mind',                     // 顿悟时刻（悟词条/剑心晋升/寄灵）——音频专用
 } as const;
 
 /** 技能特效事件 */

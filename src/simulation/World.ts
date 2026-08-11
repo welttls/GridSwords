@@ -11,6 +11,7 @@ import {
   FOOD_ENERGY,
   TICKS_PER_DAY,
   SHRINK_TARGET_SPAN,
+  SHRINK_LOG_INTERVAL_TICKS,
   MAX_HP,
   ENERGY_SPLIT_THRESHOLD,
   MUTATION_RATE,
@@ -22,6 +23,7 @@ import {
   TRIBULATION_AGGRESSION_BONUS,
 } from '../constants';
 import { clamp, shuffle, uid, randomInt } from '../utils/mathUtils';
+import { maxHpOf, maxEnergyOf } from './swordStats';
 import { eventBus, EVT } from '../utils/eventBus';
 
 export interface LineageNode {
@@ -47,6 +49,8 @@ export class World {
   lineage = new Map<string, LineageNode>();
   rootId: string | null = null;
   populationHistory: number[] = [];
+  /** 天劫收缩日志上次上报 tick（节流用，v2.2.0） */
+  private lastShrinkLogTick = -Infinity;
 
   /** 当前可活动边界 (第10天向内收缩) */
   bounds = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -244,8 +248,8 @@ export class World {
       genome,
       brainWeights: brain.getWeights(),
       brainBiases: brain.getBiases(),
-      energy: ENERGY_SPLIT_THRESHOLD / 2,
-      hp: MAX_HP,
+      energy: maxEnergyOf(parent.state) / 2, // v2.2.0：子代继承父代精元上限，初始精元随之
+      hp: maxHpOf(parent.state),
       age: 0,
       birthTick: this.tickCounter,
       position: { x: nx, y: ny },
@@ -255,6 +259,8 @@ export class World {
       origin: parent.state.origin,
       mindRealm: parent.state.mindRealm ?? 0, // v1.12.0：剑子继承父代剑心境界（脑克隆自带容量）
       mindSkillIds: parent.state.mindSkillIds ? [...parent.state.mindSkillIds] : undefined, // v2.0.0：剑心绝技随血脉遗传
+      maxHp: parent.state.maxHp, // v2.2.0：剑体/精元上限随血脉继承
+      maxEnergy: parent.state.maxEnergy,
     };
     const child = new SwordAgent(childState, brain, this);
     this.addSword(child, nx, ny);
@@ -269,20 +275,28 @@ export class World {
     return child;
   }
 
-  /** 投放一道游离剑意 (每日剑潮) 至随机空位；返回是否成功 */
-  spawnWildSword(genome: Genome, brain: SimpleNN): boolean {
+  /**
+   * 投放一道游离剑意 (每日剑潮) 至随机空位；返回是否成功。
+   * v2.2.0：凶潮可投放高剑心境界剑意（options.mindRealm）——上限随境界抬升、自带随机剑心绝技。
+   */
+  spawnWildSword(
+    genome: Genome,
+    brain: SimpleNN,
+    options: { mindRealm?: number; maxHp?: number; maxEnergy?: number; mindSkillIds?: string[] } = {},
+  ): boolean {
     for (let attempt = 0; attempt < 40; attempt++) {
       const x = Math.floor(Math.random() * this.config.width);
       const y = Math.floor(Math.random() * this.config.height);
       if (this.inBounds(x, y) && !this.isWall(x, y) && !this.grid[y][x] && this.food[y][x] === 0) {
+        const realm = options.mindRealm ?? 0;
         const st: SwordState = {
           id: uid('sw'),
           name: '',
           genome,
           brainWeights: brain.getWeights(),
           brainBiases: brain.getBiases(),
-          energy: 40, // 游离剑意初入剑域，灵力微薄，须自谋生路
-          hp: MAX_HP,
+          energy: realm > 0 ? (options.maxEnergy ?? ENERGY_SPLIT_THRESHOLD) / 2 : 40, // 高境剑意自带精元储备；凡心游离剑意灵力微薄
+          hp: options.maxHp ?? MAX_HP,
           age: 0,
           birthTick: this.tickCounter,
           position: { x, y },
@@ -290,7 +304,10 @@ export class World {
           parentId: '',
           generation: 1,
           origin: 'wild',
-          mindRealm: 0, // v1.12.0：游离剑意起于凡心
+          mindRealm: realm, // v1.12.0：游离剑意起于凡心；v2.2.0 凶潮可投洞玄（剑心 2 级）
+          mindSkillIds: options.mindSkillIds,
+          maxHp: options.maxHp, // v2.2.0：高境剑意剑体/精元上限随境界抬升
+          maxEnergy: options.maxEnergy,
         };
         const agent = new SwordAgent(st, brain, this);
         this.addSword(agent, x, y);
@@ -361,7 +378,7 @@ export class World {
       brainWeights: brain.getWeights(),
       brainBiases: brain.getBiases(),
       energy: Math.max(20, attacker.state.energy * 0.3),
-      hp: Math.round(MAX_HP * 0.6),
+      hp: Math.round(maxHpOf(attacker.state) * 0.6),
       age: 0,
       birthTick: this.tickCounter,
       position: { x, y },
@@ -371,6 +388,8 @@ export class World {
       origin: attacker.state.origin,
       mindRealm: attacker.state.mindRealm ?? 0, // v1.12.0：剑子继承寄主剑心境界
       mindSkillIds: attacker.state.mindSkillIds ? [...attacker.state.mindSkillIds] : undefined, // v2.0.0：绝技随寄主遗传
+      maxHp: attacker.state.maxHp, // v2.2.0：剑体/精元上限随寄主继承
+      maxEnergy: attacker.state.maxEnergy,
     };
     const child = new SwordAgent(st, brain, this);
     this.addSword(child, x, y);
@@ -381,6 +400,7 @@ export class World {
       element: st.genome.element,
     });
     if (st.generation > this.maxGeneration) this.maxGeneration = st.generation;
+    eventBus.emit(EVT.MIND, null); // 音频：寄灵夺舍「顿悟」
     eventBus.emit(EVT.LOG, {
       text: `第${this.config.currentDay}日：一道剑意被「寄灵」化入他脉，沦为他人剑子！`,
       focusId: st.id,
@@ -557,7 +577,12 @@ export class World {
           }
         }
       }
-      eventBus.emit(EVT.LOG, `天劫收束，壁垒向内收缩，${squeezed}道剑意被逼向中心（相斗${clashed}场），${perished}道无处立足化作混沌尘埃……`);
+      // v2.2.0：天劫收缩日志节流——无实质事件(无争斗/无陨落)时每 SHRINK_LOG_INTERVAL_TICKS 报一次；有相斗/陨落立即报（防 2 秒刷屏）
+      const meaningful = clashed > 0 || perished > 0;
+      if (meaningful || this.tickCounter - this.lastShrinkLogTick >= SHRINK_LOG_INTERVAL_TICKS) {
+        this.lastShrinkLogTick = this.tickCounter;
+        eventBus.emit(EVT.LOG, `天劫收束，壁垒向内收缩，${squeezed}道剑意被逼向中心（相斗${clashed}场），${perished}道无处立足化作混沌尘埃……`);
+      }
     }
     // 全领域落雷（随收缩阶段执行——特效展示 + 压力）；道数受场地面积钳制：区域越小越稀疏
     const lb = this.bounds;

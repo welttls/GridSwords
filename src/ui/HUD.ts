@@ -4,6 +4,7 @@ import { MAX_DAYS, SHICHEN_NAMES, TICKS_PER_SHICHEN } from '../constants';
 import { ELEMENT_COLOR, ELEMENT_LABEL } from '../simulation/Genetics';
 import { el, clearNode } from '../utils/dom';
 import { eventBus, EVT, type LogMessage } from '../utils/eventBus';
+import { audio } from '../audio/AudioManager';
 import { toast } from './modals';
 
 const GENES = [
@@ -29,6 +30,8 @@ export class HUD {
   private feedBtn!: HTMLButtonElement;
   private tideBtn!: HTMLButtonElement;
   private reseedBtn!: HTMLButtonElement;
+  private musicBtn!: HTMLButtonElement;
+  private sfxBtn!: HTMLButtonElement;
   private chartEls: { label: string; color: string; bars: HTMLElement[] }[] = [];
   /** 剑域构成分类 (v1.10.0)：五行文本元素 + 本命/外来 */
   private compElems!: { key: Element; el: HTMLElement }[];
@@ -157,8 +160,29 @@ export class HUD {
     const reseedBtn = el('button', 'btn btn-ghost', '重种本命') as HTMLButtonElement;
     reseedBtn.id = 'reseed-btn';
     this.reseedBtn = reseedBtn;
+    // 音频开关（音乐 / 音效）
+    const musicBtn = el('button', 'btn btn-ghost btn-sound', '🎵') as HTMLButtonElement;
+    musicBtn.title = audio.getMusicEnabled() ? '音乐：开' : '音乐：关';
+    musicBtn.classList.toggle('dimmed', !audio.getMusicEnabled());
+    musicBtn.addEventListener('click', () => {
+      const on = !audio.getMusicEnabled();
+      audio.setMusicEnabled(on);
+      musicBtn.classList.toggle('dimmed', !on);
+      musicBtn.title = on ? '音乐：开' : '音乐：关';
+    });
+    this.musicBtn = musicBtn;
+    const sfxBtn = el('button', 'btn btn-ghost btn-sound', '🔊') as HTMLButtonElement;
+    sfxBtn.title = audio.getSfxEnabled() ? '音效：开' : '音效：关';
+    sfxBtn.classList.toggle('dimmed', !audio.getSfxEnabled());
+    sfxBtn.addEventListener('click', () => {
+      const on = !audio.getSfxEnabled();
+      audio.setSfxEnabled(on);
+      sfxBtn.classList.toggle('dimmed', !on);
+      sfxBtn.title = on ? '音效：开' : '音效：关';
+    });
+    this.sfxBtn = sfxBtn;
     const hint = el('span', 'hint', '投食随时可施 · 炉材以次数计');
-    footer.append(feedBtn, materialBtn, tideBtn, reseedBtn, hint);
+    footer.append(feedBtn, materialBtn, tideBtn, reseedBtn, musicBtn, sfxBtn, hint);
 
     main.append(canvasHost, panel);
     this.host.append(main, footer);

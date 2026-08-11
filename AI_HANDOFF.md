@@ -41,6 +41,7 @@ npm run preview      # 预览生产构建
 | `src/simulation/SwordAgent.ts` | 剑意个体：感知→决策(NN+本能)→行动→精元/剑体结算→词条参悟 |
 | `src/simulation/Duel.ts` | 宗门大比决斗引擎(AP 半即时制、剑诀、招式生成、MUD) |
 | `src/simulation/Skills.ts` | 剑意技能系统(五行天赋 + 词条衍生) |
+| `src/audio/AudioManager.ts` + `sfxSynth.ts` | 音频管理器(BGM 切曲/暂停联动/静音) + Web Audio 合成音效 |
 | `src/data/SaveManager.ts` | 存档结构 `GameSave`(改存档必看) |
 | `src/ui/Renderer.ts` + `HUD.ts` | Pixi 画布渲染 + DOM 主界面 |
 
@@ -49,6 +50,7 @@ npm run preview      # 预览生产构建
 ```text
 src/
 ├── main.ts / Game.ts / constants.ts   # 入口 / 唯一编排者 / 全部平衡参数
+├── audio/    # AudioManager(BGM/SFX/静音) + sfxSynth(Web Audio 合成音效)
 ├── types/    # Genome / Sword / Environment / Material
 ├── simulation/  # World / SwordAgent / NeuralNet / Genetics / BattleResolver / Duel / Skills (完全 headless)
 ├── ui/       # Renderer / HUD / Menu / DayPanel / Appraisal / Battle / Ranking / Codex / SwordDetail / swordIcon / modals / tooltip
@@ -101,7 +103,7 @@ src/
 
 ## 七、调试
 
-- `main.ts` 暴露 `window.__game`(Game 实例)，浏览器 console 可直接驱动：`g.startNewRun('fire')`、`g.world.tick()` 循环快进、`g.endTribulation()` 等私有方法运行时可访问。
+- `main.ts` 暴露 `window.__game`(Game 实例)，浏览器 console 可直接驱动：`g.startNewRun('fire')`、`g.world.tick()` 循环快进、`g.endTribulation()` 等私有方法运行时可访问。另暴露 `window.__audio`(音频单例：`playSfx(id)`/`setBgm(track)`/`bgmEl` 可读)、`window.__eventBus`(可 emit 事件测音效链路)。
 - headless 验证：动态 `import('/src/simulation/World.ts')` 在浏览器 console 构造世界批量测试。
 
 ## 八、工作流约定(务必遵守)
@@ -128,7 +130,7 @@ src/
   - ~~`World⇄SwordAgent` 运行时循环依赖~~ ✅ v1.9.2 已打破（`SwordAgent` 对 `World` 改 type-only import，编译期擦除）。
   - ~~`RankingManager.submit` 未接入~~ ✅ v1.9.2 已接入 `finishAppraisal`（`submit()` 现返回排序截断后的 `list`）；`finishBattle` 的「更新既有 entry 重排」语义不同，保持内联。
   - ~~`embryoElement` 只写不读~~ ✅ v1.9.2 已删除（`embryoGenome` 已含 element）。
-- **素材 TODO**：音效(Web Audio 合成或等源)、字体(等 woff2)、水墨背景已接(`pic/` → `public/img/battle/`)。
+- **素材 TODO**：字体(等 woff2)、水墨背景已接(`pic/` → `public/img/battle/`)。**音频 ✅ v2.2.0**：三场景 BGM(`public/audio/bgm/menu|forge|battle_theme`，带 `[前缀]` 文件名，代码 `encodeURI` 引用)+ Web Audio 合成 8 音效(`src/audio/sfxSynth.ts`)。
 - **观察项**：~~`randomWildGenome` 后期属性顶格同质化~~ ✅ v1.9.1（scale 0.18→0.12：wild 顶格 67%→15%、fierce 去 day+1 且加成下调 54%→36%；平衡复验 无干预 6.83 / 扶持 14.25）；~~感知范围不一致~~ ✅ v1.9.1 提取 `INSTINCT_RANGE=10` 自文档化（行为不变）；~~buff 触发率硬编码 0.01~~ ✅ v1.9.1 提取 `BUFF_CAST_CHANCE=0.01`（行为不变）；~~「雷劫余生」世界级开关~~ ✅ v1.9.1 改个体 `survivedThunder`。
 - **v1.10.0 新功能（已完成）**：失败弹窗（峰值/全灭日+重新炼剑快捷入口）；炼剑界面分类条（五行 + 本命/外来实时统计）；剑潮弹窗升级——本局记忆 `dailyDropKind`（默认高亮上次）+ 6 秒倒计时（超时沿用上次/首日静待天时）+ 免弹窗勾选 `dailyDropLocked`（存档字段，新局重置、续玩保留）。
 - **v1.11.0（已完成）**：悟道之树不再把外来剑拼成本命后代（链根非 rootId 时树根显示「外来剑意」）；血脉断绝弹窗三选项+同日内限弹 1 次+HUD「重种本命」；HUD「剑潮」偏好面板（随时改选择/免弹窗）；词条重设——百炼 25 战、游历改足迹密度(≥350 且 ≥0.35/tick)（headless：无干预 avg 6 / 扶持 avg 13）。
@@ -155,6 +157,8 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.2.0（2026-08-11）**：音频系统（三场景 BGM + 8 合成音效 + 静音开关 + 场景预载/弹窗不中断 + `__audio`/`__eventBus`）；**剑心升级上限 +50/境**（剑体/精元凡心 95/80→忘我 245/230，晋境补满，分化阈值随上限，子代继承）；**天外凶潮投洞玄剑意**（主动选凶潮：剑心 2 级 + 随机洞玄绝技 + 上限抬升，打破种群优势；auto 默许天意仍投凡心）；**击破可及**（碰撞伤害提高 0.4/0.35 + MAX_HP 95，野外可致死、剑心晋升可达）；**分化修复**（采食 clamp 致能量卡 79.98 永不分化——移除 clamp）。headless：无干预 2/3 涌现、天劫 3/3 一柄胜出。
 
 - **v2.1.0（2026-08-11）**：剑心等级压制（门槛 2/3/5 + 高境免伤 12%/境 + 顿悟回春 + 以战养战 15%）；水系摘除受击减免/耗神 -15%（聚焦回血×2 + 采食×1.35）；天劫改版（向内挤入不再墙杀 + 挤入遇阻争斗 + 天劫血亲亦相争 + 天劫临时杀性 +0.4 & 恐惧失效 + 全领域天雷面积钳制 + 最终留场 4×4 + 斗至最后一柄 + 超时兜底）。
 - **v2.0.1（2026-08-11）**：README 顶部「当前版本」同步至 v2.0.0（此前滞留 v1.12.0，纯文档同步、无代码改动）。

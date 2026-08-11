@@ -2,3 +2,5 @@ node_modules
 dist
 *.local
 .DS_Store
+# 音频原始备份（不入库，避免仓库体积翻倍）
+public/audio/bgm/raw-music/

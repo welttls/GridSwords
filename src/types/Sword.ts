@@ -38,6 +38,10 @@ export interface SwordState {
   mindRealm?: number;
   /** 已悟剑心绝技 id (v2.0.0：晋升 3 选 1/大招获得，随血脉遗传) */
   mindSkillIds?: string[];
+  /** 剑体上限 (v2.2.0：剑心升级 +50/境；缺省用 MAX_HP=100) */
+  maxHp?: number;
+  /** 精元上限 (v2.2.0：剑心升级 +50/境；缺省用 ENERGY_SPLIT_THRESHOLD=80) */
+  maxEnergy?: number;
   /** 行为统计 (续档恢复用，随剑意序列化) */
   behavior?: BehaviorStats;
 }

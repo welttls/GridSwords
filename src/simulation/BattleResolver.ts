@@ -1,5 +1,6 @@
 import type { SwordAgent } from './SwordAgent';
 import { MAX_HP, KILL_HEAL_PCT, MIND_REALM_DMG_REDUCTION } from '../constants';
+import { maxHpOf } from './swordStats';
 
 export interface BattleResult {
   damage: number;
@@ -31,8 +32,8 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
 
   const atk = attacker.effectiveSharpness();
   const def = defender.effectiveToughness();
-  // v2.0.0：伤害公式——保底「攻伐×0.35」+ 减伤系数 0.4：低攻伐(木/土/水 攻5)对常态坚韧 5-6 也能打 3 点、可积累击杀；高攻伐(火8)仍爆发
-  let damage = Math.max(1, Math.max(Math.ceil(atk * 0.35), atk - def * 0.4));
+  // v2.0.0：伤害公式——保底「攻伐×0.4」+ 减伤系数 0.35（v2.2.0：提高碰撞致死率——低攻伐(木/土/水 攻5)对常态坚韧 5-6 也能打 4 点、可积累击杀；高攻伐(火8)仍爆发）
+  let damage = Math.max(1, Math.max(Math.ceil(atk * 0.4), atk - def * 0.35));
   // v2.0.0：追击压制——锁定目标时伤害 +30%（破绽压制，乘胜追击）
   if (attacker.huntTargetId === defender.state.id) damage = Math.max(1, Math.round(damage * 1.3));
   // 磐石护/百炼守 buff：受击减免
@@ -53,7 +54,7 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
     const gained = defender.state.energy * 0.5;
     attacker.state.energy += gained;
     // v2.1.0：以战养战——击杀回血 15% 上限（原 +5 固定），胜者不再轻易被捡漏
-    attacker.state.hp = Math.min(MAX_HP, attacker.state.hp + Math.round(MAX_HP * KILL_HEAL_PCT));
+    attacker.state.hp = Math.min(maxHpOf(attacker.state), attacker.state.hp + Math.round(maxHpOf(attacker.state) * KILL_HEAL_PCT));
     return { damage, defenderDied: true, recoil: 0 };
   }
 
