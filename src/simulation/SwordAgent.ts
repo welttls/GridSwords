@@ -45,8 +45,8 @@ export class SwordAgent {
   lastMoveDir = 0;
   /** 上一格坐标 (禁止立即折返，避免两格间来回振荡) */
   private prevCell: { x: number; y: number } | null = null;
-  /** 技能冷却剩余 tick */
-  skillCd = 0;
+  /** v2.4.0：各技能独立冷却剩余 tick（运行时字段，不序列化——读档重置=旧行为） */
+  skillCds: Record<string, number> = {};
   /** v2.0.0：剑心晋升候选绝技 (本命血脉待 3 选 1；运行时字段，不序列化) */
   pendingMindPick: string[] | null = null;
   /** v2.0.0：残血追击锁定——攻击未击杀时锁定目标，持续追杀至击杀/逃离 (运行时字段) */
@@ -445,7 +445,11 @@ export class SwordAgent {
     this.actedThisTick = false;
     this.recheckAffixes();
     this.checkMindRealm();
-    if (this.skillCd > 0) this.skillCd--;
+    // v2.4.0：独立冷却——各技能冷却分别递减，归零即移除
+    for (const k of Object.keys(this.skillCds)) {
+      this.skillCds[k]--;
+      if (this.skillCds[k] <= 0) delete this.skillCds[k];
+    }
 
     // v2.3.0：控制状态——定身（青藤缚）/减速（地脉震）/深水阻滞（先读后减，避免被缩短一 tick）
     const rooted = (this.state.rootedTicks ?? 0) > 0;
@@ -480,8 +484,8 @@ export class SwordAgent {
         if (this.isDead()) { this.die(); return; }
       }
     }
-    // 剑意技能 (五行天赋 + 词条)：耗精元、有冷却
-    if (this.skillCd <= 0 && this.state.energy > 5 && !this.isDead()) {
+    // 剑意技能 (五行天赋 + 词条)：耗精元、各技独立冷却（v2.4.0，tryCastSkill 内部按技能查冷却）
+    if (this.state.energy > 5 && !this.isDead()) {
       tryCastSkill(this, this.world, skillsFor(this.state.genome.element, this.state.genome.affixes, this.state.mindSkillIds));
     }
 
@@ -558,6 +562,7 @@ export class SwordAgent {
   }
 
   die(): void {
+    if (!this.world.swords.has(this.state.id)) return;
     this.state.hp = 0; // v2.3.0：陨落后 hp 归零（熔岩焚身路径先置 0；统一在此兜底，防「诈尸」再动）
     eventBus.emit(EVT.DEATH, {
       x: this.state.position.x,

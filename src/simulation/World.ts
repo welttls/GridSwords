@@ -154,6 +154,9 @@ export class World {
       const existing = this.terrainExpiry.find((t) => t.x === x && t.y === y);
       if (existing) existing.expireTick = this.tickCounter + durationTicks;
       else this.terrainExpiry.push({ x, y, expireTick: this.tickCounter + durationTicks });
+    } else {
+      // 手动布阵设置永久地形时，清除该格上残留的临时过期记录，避免后续自动消失
+      this.terrainExpiry = this.terrainExpiry.filter((t) => !(t.x === x && t.y === y));
     }
   }
 
@@ -192,7 +195,13 @@ export class World {
       }
       if (px === undefined || py === undefined) return false;
     } else {
-      if (!this.inBounds(px, py) || this.isWall(px, py) || this.terrain[py][px] || this.grid[py][px]) return false;
+      if (
+        !this.inBounds(px, py) ||
+        this.isWall(px, py) ||
+        this.terrain[py][px] ||
+        this.grid[py][px] ||
+        this.food[py][px] > 0
+      ) return false;
     }
     this.encounterSeed = { x: px, y: py, id: uid('seed'), spawnedTick: this.tickCounter };
     eventBus.emit(EVT.LOG, {
@@ -565,28 +574,26 @@ export class World {
     }
   }
 
-  /** v2.3.0：手动天雷（雷劫液）——在指定格降下雷霆，与天劫天雷同伤害/特效；始终降雷展示，命中剑意则结算 */
+  /** v2.3.0 手动天雷 / v2.4.0 范围雷暴：在指定格降下雷霆——闪电劈落，半径 2 内剑意同受天雷（与天劫同伤）；始终降雷展示 */
   strikeLightning(x: number, y: number): boolean {
     if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return false;
-    const sid = this.grid[y][x];
-    if (sid) {
-      const s = this.swords.get(sid);
-      if (s) {
-        // 先落雷特效/音效，再结算伤害（击杀另有死亡粒子）
-        eventBus.emit(EVT.THUNDER, { x, y, element: s.state.genome.element });
-        s.state.hp -= TRIBULATION_LIGHTNING_DMG;
-        s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
-        if (s.state.hp <= 0 || s.state.energy <= 0) {
-          s.die();
-        } else {
-          // 雷劫余生：历天雷而仍存续 → 标记个体经历（鉴定标签，v2.3.0 由手动天雷延续）
-          s.state.survivedThunder = true;
-        }
-        return true;
+    // 落点剑意元素（决定特效主色；空地取 metal）
+    const hit = this.swords.get(this.grid[y][x] ?? '');
+    const element = hit?.state.genome.element ?? 'metal';
+    // 先落雷特效/音效（闪电劈下 + 范围雷暴），再结算伤害（击杀另有死亡粒子）
+    eventBus.emit(EVT.THUNDER, { x, y, element });
+    for (const s of this.swords.values()) {
+      const d = Math.abs(s.state.position.x - x) + Math.abs(s.state.position.y - y);
+      if (d > 2) continue; // v2.4.0：范围雷暴——半径 2（曼哈顿）内剑意同受天雷
+      s.state.hp -= TRIBULATION_LIGHTNING_DMG;
+      s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
+      if (s.state.hp <= 0 || s.state.energy <= 0) {
+        s.die();
+      } else {
+        // 雷劫余生：历天雷而仍存续 → 标记个体经历（鉴定标签）
+        s.state.survivedThunder = true;
       }
     }
-    // 空地处也降雷（特效展示）
-    eventBus.emit(EVT.THUNDER, { x, y, element: 'metal' });
     return true;
   }
 

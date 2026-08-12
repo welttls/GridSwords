@@ -557,7 +557,12 @@ export class Game {
         w.setTerrain(x, y, 'deepwater');
         break;
       case 'clear':
-        w.clearTerrain(x, y);
+        // v2.4.0：恢复笔刷范围化——一次清除 3×3 邻域地形（熔岩/深水/临时火海）
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            w.clearTerrain(x + dx, y + dy);
+          }
+        }
         break;
       case 'seed':
         if (this.save.formation.seed <= 0) { toast('奇遇灵种已尽，可用炉材补充。'); return; }
@@ -990,8 +995,7 @@ export class Game {
       case 'manualLightning':
         // v2.3.0：雷劫液改手动天雷——武装一次引雷，点击剑域任意处降下雷霆（与天劫天雷同伤/特效）
         this.lightningArmed = true;
-        this.formationMode = false; // 若在布阵中则退出，避免冲突
-        this.host.classList.remove('forming');
+        if (this.formationMode) this.exitFormationMode(); // 若在布阵中则退出，避免冲突并同步 UI
         toast('⚡ 天雷已引，点击剑域任意处降下雷霆！');
         break;
     }

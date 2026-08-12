@@ -1,7 +1,7 @@
 import type { World } from './World';
 import type { SwordAgent } from './SwordAgent';
 import type { Element, Genome, SwordState } from '../types';
-import { MAX_HP, BUFF_CAST_CHANCE, MIND_CAST_MULT, KILL_HEAL_PCT, FIRE_GROUND_TICKS } from '../constants';
+import { MAX_HP, BUFF_CAST_CHANCE, MIND_CAST_MULT, KILL_HEAL_PCT, FIRE_WALL_RADIUS } from '../constants';
 import { maxHpOf } from './swordStats';
 import { eventBus, EVT } from '../utils/eventBus';
 import { clamp, randomInt } from '../utils/mathUtils';
@@ -86,7 +86,7 @@ export const ELEMENT_TALENTS: Record<Element, SwordSkill[]> = {
   fire: [
     {
       id: 'skill_eruption', name: '焚天爆', kind: 'aoe', element: 'fire',
-      desc: '引燃周身灵气爆散，重创方圆之敌——余烬化为火海，灼烧退路。',
+      desc: '引燃周身灵气爆散，重创方圆之敌——余烬化火墙向外扩散，灼烧所过之敌后消散（不留火海、不困自身）。',
       energyCost: 22, cooldown: 300, castChance: 0.02, radius: 3, dmgMult: 1.5, burnTicks: 48,
     },
     {
@@ -218,7 +218,19 @@ export function skillsFor(element: Element, affixes: string[], mindSkillIds?: st
   return list;
 }
 
-/** 触发技能 (headless 结算 + 渲染事件) */
+/** v2.4.0：技能等级优先级——高等级技能 CD 长但优先施放（忘我大招 > 通明/洞玄绝技 > 五行天赋/词条） */
+function skillTier(s: SwordSkill): number {
+  if (s.id === MIND_SKILL_ULT.id) return 3;
+  if (MIND_SKILL_BY_ID[s.id]) return 2;
+  return 1;
+}
+
+/**
+ * 触发技能 (headless 结算 + 渲染事件)。
+ * v2.4.0 重构：① 各技能独立冷却（不再共用一条冷却饿死高等级技能）；
+ * ② 情境智能评分——多敌在范围→偏向范围技、单敌→偏向单体技、残血→保命（逃跑/回血）优先；
+ * ③ 等级优先——评分 = 等级×10 + 情境加成 + 随机抖动，选最高分施放。
+ */
 export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill[]): boolean {
   const st = agent.state;
   const hpRatio = st.hp / maxHpOf(st);
@@ -232,42 +244,94 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
   // v1.12.0：剑心境界愈高，愈擅施法（触发率加成）
   const castMult = MIND_CAST_MULT[st.mindRealm ?? 0] ?? 1;
 
+  /** 情境：某半径（曼哈顿）内非血亲敌人数 */
+  const countIn = (r: number): number => {
+    let n = 0;
+    for (const other of world.swords.values()) {
+      if (other.state.id === st.id) continue;
+      if (world.kinProtected() && world.isKin(agent, other)) continue;
+      const d = Math.abs(other.state.position.x - st.position.x) + Math.abs(other.state.position.y - st.position.y);
+      if (d <= r) n++;
+    }
+    return n;
+  };
+
+  let best: { s: SwordSkill; score: number } | null = null;
   for (const s of skills) {
     if (energy < s.energyCost) continue;
+    // v2.4.0：独立冷却——各技能各算各的，不再被其他技能拖累
+    if ((agent.skillCds?.[s.id] ?? 0) > 0) continue;
     let want = false;
+    let bonus = 0; // 情境加成（情境越契合分越高）
     switch (s.kind) {
       case 'projectile':
-      case 'line':
-        want = !!enemy && enemy.dist <= (s.range ?? 10) && Math.random() < s.castChance * castMult;
+      case 'line': {
+        want = !!enemy && enemy.dist <= (s.range ?? 10);
+        // 单体情境：范围内敌越少越偏向单体技；残血时换血收益低，让位保命
+        if (want) {
+          const n = countIn(s.range ?? 10);
+          if (n === 1) bonus += 14;
+          if (hpRatio < 0.3) bonus -= 4;
+        }
         break;
-      case 'aoe':
-        want = !!enemy && enemy.dist <= (s.radius ?? 3) && Math.random() < s.castChance * castMult;
+      }
+      case 'aoe': {
+        want = !!enemy && enemy.dist <= (s.radius ?? 3);
+        // 多目标情境：范围内敌越多越偏向范围技（加成足以压过同级单体、盖过一档等级差）
+        if (want) {
+          const n = countIn(s.radius ?? 3);
+          if (n >= 3) bonus += 16;
+          else if (n >= 2) bonus += 10;
+        }
         break;
-      case 'heal':
-        want = hpRatio < 0.45 && Math.random() < s.castChance * castMult;
+      }
+      case 'heal': {
+        want = hpRatio < 0.45;
+        // 血越少越急——保命优先于输出
+        if (want) {
+          bonus += Math.round((0.45 - hpRatio) * 60);
+          if (hpRatio < 0.25) bonus += 10;
+        }
         break;
-      case 'teleport':
+      }
+      case 'teleport': {
         // v2.3.0：奇遇种子在瞬移范围内亦可施放（趋奇遇而遁形）
-        want = (hpRatio < 0.35 || (enemy !== null && enemy.dist <= 3) || seedClose) && Math.random() < s.castChance * castMult;
+        want = hpRatio < 0.35 || (enemy !== null && enemy.dist <= 3) || seedClose;
+        // 打不过先跑——残血时逃命优先于一切输出
+        if (want && hpRatio < 0.25) bonus += 25;
+        else if (want && enemy !== null && enemy.dist <= 3) bonus += 6;
         break;
+      }
       case 'convert':
-        want = energy > s.energyCost + 15 && hpRatio < 0.65 && Math.random() < s.castChance * castMult;
+        want = energy > s.energyCost + 15 && hpRatio < 0.65;
         break;
-      case 'buff':
-        // 有敌临近才施放，且不重复叠buff
+      case 'buff': {
+        // 有敌临近才施放，且不重复叠buff（频控保留 BUFF_CAST_CHANCE，防 buff 过期立刻重放）
         want =
           enemy !== null &&
           enemy.dist <= 8 &&
           !(st.buffAtkTicks ?? 0 > 0) &&
           !(st.buffDefTicks ?? 0 > 0) &&
           Math.random() < BUFF_CAST_CHANCE * castMult;
+        if (want) bonus += 2;
         break;
+      }
     }
     if (!want) continue;
-    castSkill(agent, world, s, enemy);
-    return true;
+    // 评分 = 等级优先级×10 + 情境加成 + 随机抖动（破平局）
+    const score = skillTier(s) * 10 + bonus + Math.random() * 2;
+    if (!best || score > best.score) best = { s, score };
   }
-  return false;
+  if (!best) return false;
+  const b = best.s;
+  // v2.4.0：频率闸门——以「最高分技能」的概率放行：等级/情境越契合（分越高）越常施放；
+  // 高等级技能 CD 长但出手更勤；buff 频控已内嵌 BUFF_CAST_CHANCE，不再二次摇奖
+  if (b.kind !== 'buff') {
+    const factor = Math.min(5, Math.max(0.5, best.score / 10));
+    if (Math.random() >= b.castChance * castMult * factor) return false;
+  }
+  castSkill(agent, world, b, enemy);
+  return true;
 }
 
 /** 技能结算 (enemy 为 tryCastSkill 预扫描结果，可复用避免重复全盘扫描) */
@@ -316,14 +380,17 @@ export function castSkill(
           hit++;
         }
       }
-      // v2.3.0：焚天爆——余烬化为火海（临时熔岩），灼烧退路、封锁战场
+      // v2.4.0：焚天爆——余烬化火墙：自爆心向外扩散（半径 4-5），扫过之敌被灼烧后消散——不留地形、不困自身
       if (s.burnTicks) {
-        const orth: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-        for (const [ox, oy] of orth) {
-          const fx = x + ox;
-          const fy = y + oy;
-          if (world.inBounds(fx, fy) && !world.isWall(fx, fy) && !world.swordIdAt(fx, fy) && !world.foodAt(fx, fy)) {
-            world.setTerrain(fx, fy, 'lava', FIRE_GROUND_TICKS);
+        for (const other of world.swords.values()) {
+          if (other.state.id === st.id) continue;
+          if (world.kinProtected() && world.isKin(agent, other)) continue;
+          const d = Math.abs(other.state.position.x - x) + Math.abs(other.state.position.y - y);
+          if (d > r && d <= FIRE_WALL_RADIUS) {
+            applyCC(agent, world, other, s, {
+              dx: other.state.position.x === x ? 0 : Math.sign(other.state.position.x - x),
+              dy: other.state.position.y === y ? 0 : Math.sign(other.state.position.y - y),
+            });
           }
         }
       }
@@ -380,8 +447,8 @@ export function castSkill(
       break;
     }
   }
-  // 冷却
-  (agent as unknown as { skillCd: number }).skillCd = s.cooldown;
+  // v2.4.0：独立冷却——仅本技能进入冷却，不影响其他技能
+  agent.skillCds[s.id] = s.cooldown;
 }
 
 /** 直线命中 (沿方向到射程，pierce 时贯穿全部目标)，返回命中数 */

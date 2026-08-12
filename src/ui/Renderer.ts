@@ -2,7 +2,7 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { World } from '../simulation/World';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { ELEMENT_COLOR } from '../simulation/Genetics';
-import { MIND_SWORD_SCALE } from '../constants';
+import { MIND_SWORD_SCALE, FIRE_WALL_RADIUS } from '../constants';
 import { eventBus, EVT, type ParticleEvent, type SkillVisual } from '../utils/eventBus';
 
 const FOOD_COLOR = 0xffd76a;
@@ -34,7 +34,7 @@ interface FloatText {
 
 /** 技能特效 (持续帧动画) */
 interface Effect {
-  kind: 'proj' | 'ring' | 'beam';
+  kind: 'proj' | 'ring' | 'beam' | 'bolt';
   x: number;
   y: number;
   dx: number;
@@ -44,6 +44,8 @@ interface Effect {
   maxLife: number;
   /** 半径/射程 (格) */
   radius: number;
+  /** v2.4.0：闪电锯齿水平偏移序列（bolt 用，创建时预生成避免每帧抖动） */
+  jag?: number[];
 }
 
 /**
@@ -199,7 +201,22 @@ export class WorldRenderer {
     this.spawnBurst(e.x, e.y, 0xffd76a, 4, this.cell * 4, this.cell * 0.1, 0.4);
   }
 
+  /** v2.4.0：落雷特效——闪电自天穹劈下（锯齿竖线）+ 范围雷暴（增长风暴环）+ 爆闪粒子（手动天雷/天劫共用） */
   private onThunder(e: ParticleEvent): void {
+    // 1. 闪电劈下：自画布顶部到落点的锯齿闪电（预生成偏移，防每帧抖动）
+    const seg = 8;
+    const jag: number[] = [];
+    let off = 0;
+    for (let i = 0; i < seg; i++) {
+      off += (Math.random() - 0.5) * 1.5 * (1 - i / seg); // 越接近地面振幅越小
+      jag.push(off);
+    }
+    this.effects.push({ kind: 'bolt', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xcfe4ff, life: 0.32, maxLife: 0.32, radius: 0, jag });
+    this.effects.push({ kind: 'bolt', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.15, maxLife: 0.15, radius: 0, jag });
+    // 2. 范围雷暴：增长风暴环
+    this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0x9ac8ff, life: 0.6, maxLife: 0.6, radius: 3.4 });
+    this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.32, maxLife: 0.32, radius: 2.2 });
+    // 3. 爆闪粒子
     this.spawnBurst(e.x, e.y, 0x9ac8ff, 14, this.cell * 8, this.cell * 0.2, 0.35);
     this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 6, this.cell * 0.16, 0.2);
   }
@@ -210,6 +227,13 @@ export class WorldRenderer {
     const label = e.text;
     // v2.0.0：剑心绝技专属特效（更酷炫，优先于普通 kind 特效）
     if (e.id && this.mindFx(e)) return;
+    // v2.4.0：焚天爆——扩散火墙特效（火环自爆心扩张到最远半径后淡出 + 火焰粒子）
+    if (e.id === 'skill_eruption') {
+      this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xff6a4a, life: 0.9, maxLife: 0.9, radius: FIRE_WALL_RADIUS + 0.5 });
+      this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffd76a, life: 0.55, maxLife: 0.55, radius: FIRE_WALL_RADIUS * 0.7 });
+      this.spawnBurst(e.x, e.y, 0xff6a4a, 18, this.cell * 6, this.cell * 0.18, 0.6);
+      this.spawnBurst(e.x, e.y, 0xffd76a, 8, this.cell * 5, this.cell * 0.13, 0.45);
+    }
     switch (e.kind) {
       case 'projectile': {
         const dx = e.dx ?? 1;
@@ -422,6 +446,22 @@ export class WorldRenderer {
         eg.lineStyle(cell * 0.22, e.color, Math.min(1, t * 1.5));
         eg.drawCircle(cx, cy, Math.max(1, r));
         eg.lineStyle(0);
+      } else if (e.kind === 'bolt') {
+        // v2.4.0：闪电劈下——自画布顶部到落点的锯齿竖线 + 落点亮核
+        const jag = e.jag ?? [];
+        const k = cell * 0.4;
+        const topY = -cell;
+        const n = jag.length;
+        eg.lineStyle(cell * 0.32, e.color, Math.min(1, t * 2.4));
+        eg.moveTo(cx + (jag[0] ?? 0) * k, topY);
+        for (let i = 1; i < n; i++) {
+          eg.lineTo(cx + (jag[i] ?? 0) * k, topY + ((cy - topY) * i) / n);
+        }
+        eg.lineTo(cx, cy);
+        eg.lineStyle(0);
+        eg.beginFill(0xffffff, Math.min(1, t * 1.8));
+        eg.drawCircle(cx, cy, cell * 0.25);
+        eg.endFill();
       } else if (e.kind === 'beam') {
         const len = e.radius * cell * t;
         eg.lineStyle(cell * 0.35, e.color, Math.min(1, t * 2.4));

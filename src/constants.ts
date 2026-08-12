@@ -22,8 +22,8 @@ export const ENCOUNTER_SEED_DAILY_CHANCE = 0.15;
 // ===== 技能控制/灼烧 (v2.3.0) =====
 /** 灼烧：每 tick 剑体伤害（焚天爆命中/烈焰甲附火） */
 export const BURN_DMG_PER_TICK = 1.5;
-/** 焚天爆留下的火海（临时熔岩）持续时间 tick（约 50s @4tps） */
-export const FIRE_GROUND_TICKS = 200;
+/** v2.4.0：焚天爆余烬化火墙——自爆心向外扩散的最远半径（扫过之处灼烧敌人后消散，不留地形、不困自身） */
+export const FIRE_WALL_RADIUS = 5;
 
 
 // ===== 庚金之气 (食物) =====

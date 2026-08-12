@@ -27,7 +27,7 @@ export interface FormationState {
 export const FORMATION_TIPS: Record<FormationBrush, string> = {
   lava: '布置熔岩：剑意一步踏入即剑体崩解（一击必杀）；瞬移可渡；不限次数',
   deepwater: '布置深水：剑意减速且耗神，水行免疫；不限次数',
-  clear: '恢复地形：去除熔岩/深水，还原为平地（不限次数）',
+  clear: '恢复地形：一次清除 3×3 范围内熔岩/深水，还原为平地（不限次数）',
   seed: '种下奇遇种子：被剑意取得者剑心境界 +1；可自行选择是否封锁',
 };
 

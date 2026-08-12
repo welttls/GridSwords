@@ -86,9 +86,9 @@ src/
 
 **词条系统**(`AffixDB.ts`，存于 `Genome.affixes` 可遗传)：eat30 吞金(采气≥20) / kill5 斩念(击破≥3) / fight15 百炼(历经≥25战) / roam400 游历(足迹≥350 且密度≥0.35/tick，即每时辰≥28 格) / poison 淬毒(**v2.0.0 木行专属**：木+存续≥2500+历经≥15战；毒伤 2/36tick；**毒木反噬**——淬毒木剑被攻击时攻击者反中毒，BattleResolver) / parasite 寄灵(rare，木行+合击+世代≥4)。判定在 `SwordAgent.recheckAffixes()` 每 tick 参悟。**v1.8.0 门槛放宽、v1.9.0 淬毒加行为要求(存续2500/15战)、v1.11.0 百炼 25 战 / 游历改足迹密度(苟活久者不悟)、v2.0.0 淬毒归木系**。
 
-**剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。**v2.3.0 机制差异化**（同类技能不再只是数值差）：青藤缚命中**定身**（`rootedTicks`）、惊涛斩**击退**（`knockback`）、焚天爆命中**灼烧**（`burningTicks`）+余烬化**火海**（临时熔岩）、地脉震**减速**（`slowedTicks`）、金罡体/百炼守**反震**（`reflectPct`）、磐石护**免控**（`immuneCCTicks`）、烈焰甲**附火**（`flameArmorTicks`）。控制字段全在 `SwordState`（运行时可选字段），`Skills.tickCombatStates` 递减；`BattleResolver`/`Skills.damageSword` 统一接入反震/附火。
+**剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。**v2.3.0 机制差异化**（同类技能不再只是数值差）：青藤缚命中**定身**（`rootedTicks`）、惊涛斩**击退**（`knockback`）、焚天爆命中**灼烧**（`burningTicks`）+余烬化**火墙**（v2.4.0：自爆心扩散至半径 5、灼烧扫过之敌后消散——不留地形、不困自身）、地脉震**减速**（`slowedTicks`）、金罡体/百炼守**反震**（`reflectPct`）、磐石护**免控**（`immuneCCTicks`）、烈焰甲**附火**（`flameArmorTicks`）。控制字段全在 `SwordState`（运行时可选字段），`Skills.tickCombatStates` 递减；`BattleResolver`/`Skills.damageSword` 统一接入反震/附火。**v2.4.0 施放重构**：**独立冷却**（`agent.skillCds` 按技能各算、运行时字段不序列化，读档重置；不再共用 `skillCd` 饿死高等级技能）+ **情境智能评分选技**（`tryCastSkill`：多敌→范围、单敌→单体、残血→回血/逃跑优先；评分 = 等级优先级（忘我大招 3 > 通明/洞玄绝技 2 > 天赋/词条 1）×10 + 情境加成 + 抖动，选最高分，以最高分技能概率放行——高等级 CD 长但出手更勤）。
 
-**剑域地形与奇遇(v2.3.0)**：`World.terrain` 层（`TerrainType='lava'|'deepwater'` + `terrainSet` 增量集合 + `terrainExpiry` 临时地形队列，随 `exportEcoState` 序列化）。**熔岩**=一步踏入即死（`performMoveTo` 顶部判定）、视作壁垒避让（`isWall` 含 lava）、饥饿执念小概率犯险（`LAVA_DESPERATION_CHANCE`）、瞬移/击退可渡（落地/被击入熔岩即死）、立于其上超一完整 tick 即死；**深水**=可通行但减速（`mired` 概率受阻）+ 耗精元 ×1.5（水行免疫）。**奇遇种子**=`World.encounterSeed`（单颗），`placeEncounterSeed`/`claimEncounterSeed`（`moveSword` 踏入/瞬移自动触发），取得 → `SwordAgent.grantMindRealm`（境界+1，复用 `applyMindPromotion`，忘我后化灵力补满）；剑意强吸引（instinctBias 权重 1.6）；瞬移技能在种子 6 格内直取种子格。**奇遇灵种是独立投入物**——`formationSeed` 炉材授予 1 次布阵之数（非直接放置），玩家在布阵模式（暂停）自主选位种下，可自选是否以熔岩/深水封锁。**布阵 UI**：HUD「布阵」→ `Game.toggleFormationMode`（暂停+单行紧凑工具栏+点画拖动），笔刷=熔岩/深水/恢复/奇遇种子（`FORMATION_TIPS` 悬浮说明）；**熔岩/深水/恢复均不限次**（`clearTerrain` 去熔岩/深水/临时火海），仅奇遇种子计次（`GameSave.formation.seed`）；**布阵模式下画布下移让位（`.forge-screen.forming .canvas-host` padding-top），工具栏不遮挡剑域**；天劫期禁用。**手动天雷**：雷劫液 → `Game.lightningArmed` → 点击画布 → `World.strikeLightning`（同天劫伤害/特效，幸存者标 `survivedThunder`「雷劫余生」）。
+**剑域地形与奇遇(v2.3.0)**：`World.terrain` 层（`TerrainType='lava'|'deepwater'` + `terrainSet` 增量集合 + `terrainExpiry` 临时地形队列，随 `exportEcoState` 序列化）。**熔岩**=一步踏入即死（`performMoveTo` 顶部判定）、视作壁垒避让（`isWall` 含 lava）、饥饿执念小概率犯险（`LAVA_DESPERATION_CHANCE`）、瞬移/击退可渡（落地/被击入熔岩即死）、立于其上超一完整 tick 即死；**深水**=可通行但减速（`mired` 概率受阻）+ 耗精元 ×1.5（水行免疫）。**奇遇种子**=`World.encounterSeed`（单颗），`placeEncounterSeed`/`claimEncounterSeed`（`moveSword` 踏入/瞬移自动触发），取得 → `SwordAgent.grantMindRealm`（境界+1，复用 `applyMindPromotion`，忘我后化灵力补满）；剑意强吸引（instinctBias 权重 1.6）；瞬移技能在种子 6 格内直取种子格。**奇遇灵种是独立投入物**——`formationSeed` 炉材授予 1 次布阵之数（非直接放置），玩家在布阵模式（暂停）自主选位种下，可自选是否以熔岩/深水封锁。**布阵 UI**：HUD「布阵」→ `Game.toggleFormationMode`（暂停+单行紧凑工具栏+点画拖动），笔刷=熔岩/深水/恢复/奇遇种子（`FORMATION_TIPS` 悬浮说明）；**熔岩/深水/恢复均不限次**（`clearTerrain` 去熔岩/深水/临时火海），仅奇遇种子计次（`GameSave.formation.seed`）；**v2.4.0 恢复笔刷范围化**——一次清除 3×3 邻域；**布阵模式下画布下移让位（`.forge-screen.forming .canvas-host` padding-top），工具栏不遮挡剑域**；天劫期禁用。**手动天雷（v2.3.0 / v2.4.0 范围雷暴）**：雷劫液（**v2.4.0 初始拥有直接解锁**）→ `Game.lightningArmed` → 点击画布 → `World.strikeLightning`（**v2.4.0 半径 2 曼哈顿范围 AoE**：范围内剑意 -28/-12，致死 die、幸存标 `survivedThunder`「雷劫余生」；**闪电劈落 + 范围雷暴特效**，天劫落雷同享）。
 
 ## 六、炉材一览(RecipeDB)
 
@@ -100,7 +100,7 @@ src/
 | **奇遇灵种 (v2.3.0)** | **获得 1 次「奇遇种子」布阵之数（布阵模式自选位置种下，取得者剑心境界+1）；万剑榜前10 解锁** | 1 |
 | 《快剑总纲》残篇 | 分化速度突变率 ×3 | 2 |
 | 《重剑无锋诀》 | 分化坚固突变率 ×3、速度突变率降 | 2 |
-| **雷劫液 (v2.3.0)** | **手动天雷：使用后武装一次引雷，点击剑域任意处降雷（剑体-28/精元-12，同天劫伤害/特效，可击杀；幸存者标「雷劫余生」）** | 2 |
+| **雷劫液 (v2.3.0 / v2.4.0)** | **手动天雷（v2.4.0 初始拥有直接解锁）：使用后武装一次引雷，点击剑域任意处降雷——闪电劈落、范围雷暴（半径 2 内剑体-28/精元-12，可击杀；幸存者标「雷劫余生」）** | 2 |
 | 陨星铁母 | 撒超高能量食物 + 攻击欲望 +0.3 | 1 |
 
 > v2.3.0：「投食」改名「**布霖**」（全量替换按钮/日志/注释）；**熔岩/深水/恢复布阵不限次数**（已删「扶桑火种/赤地灵契/玄冥真水」）；「雷劫液」由全图被动雷劫改**手动天雷**（`World.strikeLightning`，废弃 `modifiers.thunderstorm`）；布阵系仅「奇遇灵种」计次（`GameSave.formation.seed`）。
@@ -161,6 +161,8 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.4.0（2026-08-12）**：焚天爆余烬化火墙（自爆心扩散灼烧后消散，不留地形、不困自身）+ 恢复笔刷 3×3 + 雷劫液初始解锁 & 手动天雷范围雷暴（半径 2 AoE + 闪电劈落特效）+ 剑意技能重构（独立冷却 / 情境智能 / 高等级优先）。headless：无干预 7-8 / 扶持 53-73、天劫 3/3 一柄胜出。
 
 - **v2.3.0（2026-08-12）**：剑域布阵（地形层 熔岩/深水 + 地图编辑 UI + 布阵次数炉材化）、奇遇种子（剑心境界+1、熔岩封锁瞬移可渡）、重种本命可选五行、布霖改名、技能机制差异化（定身/击退/灼烧+火海/减速/反震/免控/附火）、**音律设置**（主菜单/大比「音律」面板：背景乐/音效 开关+音量滑块，持久化 `swordforge-audio-v1`）。headless：无干预 avg 5.8 / 扶持 avg 50.8（与历史基准一致，零崩溃），完整十日+天劫 3/3 一柄胜出。
 

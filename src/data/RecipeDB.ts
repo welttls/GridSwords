@@ -56,8 +56,8 @@ export const RECIPES: Material[] = [
   {
     id: 'thunder_potion',
     name: '雷劫液',
-    unlock: 'rankTop3',
-    description: '引动天雷，蓄于指尖。使用后点击剑域任意处降下雷霆——与天劫天雷同伤（剑体-28、精元-12），可击杀剑意。',
+    unlock: 'start', // v2.4.0：手动天雷直接解锁（玩家乐趣），不再锁万剑榜前 3
+    description: '引动天雷，蓄于指尖。使用后点击剑域任意处降下雷霆——闪电劈落、范围雷暴（半径 2 内剑意同受天雷：剑体-28、精元-12），可击杀剑意。',
     effect: { type: 'manualLightning' },
     count: 2,
   },
