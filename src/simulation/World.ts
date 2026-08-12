@@ -21,6 +21,7 @@ import {
   TRIBULATION_LIGHTNING_BASE,
   TRIBULATION_LIGHTNING_RAMP,
   TRIBULATION_AGGRESSION_BONUS,
+  type TerrainType,
 } from '../constants';
 import { clamp, shuffle, uid, randomInt } from '../utils/mathUtils';
 import { maxHpOf, maxEnergyOf } from './swordStats';
@@ -48,6 +49,8 @@ export class World {
   /** 血统溯源 (id -> 父信息) */
   lineage = new Map<string, LineageNode>();
   rootId: string | null = null;
+  /** v2.3.0：奇遇种子——同时最多 1 颗存活；被剑意取得后清除，可再放置/随机出现 */
+  encounterSeed: { x: number; y: number; id: string; spawnedTick: number } | null = null;
   populationHistory: number[] = [];
   /** 天劫收缩日志上次上报 tick（节流用，v2.2.0） */
   private lastShrinkLogTick = -Infinity;
@@ -58,7 +61,12 @@ export class World {
   private grid: (string | null)[][];
   private food: number[][];
   private walls: boolean[][];
+  /** v2.3.0：剑域地形层——熔岩(一击必杀)/深水(减速耗神)，键 = y*width+x */
+  private terrain: (TerrainType | null)[][];
+  /** 火墙过期队列 (idx 即 cellKey，v2.2.1 随档保存) */
   private wallExpiry: { idx: number; expireTick: number }[] = [];
+  /** v2.3.0：临时地形过期队列（焚天爆火海等） */
+  private terrainExpiry: { x: number; y: number; expireTick: number }[] = [];
   private foodCount = 0;
   /** 剑意行动随机顺序 (复用数组，避免每 tick 新建) */
   private tickOrder: string[] = [];
@@ -66,6 +74,8 @@ export class World {
   private foodSet = new Set<number>();
   /** 火墙/障碍格键集合 (渲染增量遍历用) */
   private wallSet = new Set<number>();
+  /** v2.3.0：地形格键集合 (渲染增量遍历用) */
+  private terrainSet = new Set<number>();
   /** 血亲链根缓存 (id -> 链根 id；lineage 只增不删，缓存长期有效) v1.12.0 */
   private rootCache = new Map<string, string>();
 
@@ -87,7 +97,6 @@ export class World {
       speedBonus: 0,
       mutationBias: null,
       temperature: 'normal',
-      thunderstorm: false,
       megaFood: false,
       aggressionBonus: 0,
     };
@@ -95,6 +104,7 @@ export class World {
     this.grid = Array.from({ length: height }, () => new Array<string | null>(width).fill(null));
     this.food = Array.from({ length: height }, () => new Array<number>(width).fill(0));
     this.walls = Array.from({ length: height }, () => new Array<boolean>(width).fill(false));
+    this.terrain = Array.from({ length: height }, () => new Array<TerrainType | null>(width).fill(null));
     this.bounds = { minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 };
   }
 
@@ -110,7 +120,93 @@ export class World {
 
   isWall(x: number, y: number): boolean {
     if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return true;
-    return this.walls[y][x];
+    // v2.3.0：熔岩视作壁垒（剑意感知避让、不可普通通行）；深水可通行
+    return this.walls[y][x] || this.terrain[y][x] === 'lava';
+  }
+
+  /** v2.3.0：地形查询——'lava' 熔岩 / 'deepwater' 深水 / null 空地 */
+  terrainAt(x: number, y: number): TerrainType | null {
+    if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return null;
+    return this.terrain[y][x];
+  }
+
+  isLava(x: number, y: number): boolean {
+    return this.terrainAt(x, y) === 'lava';
+  }
+
+  isDeepWater(x: number, y: number): boolean {
+    return this.terrainAt(x, y) === 'deepwater';
+  }
+
+  /** v2.3.0：地形格键集合 (渲染增量遍历用，键 = y*width+x) */
+  get terrainCells(): Set<number> {
+    return this.terrainSet;
+  }
+
+  /** v2.3.0：布阵地形（熔岩/深水）。覆盖该格食物；剑意占位格允许覆盖（踏入即死的威胁由剑意方处理）。 */
+  setTerrain(x: number, y: number, type: TerrainType, durationTicks?: number): void {
+    if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return;
+    this.terrain[y][x] = type;
+    this.terrainSet.add(this.cellKey(x, y));
+    if (this.food[y][x] > 0) this.removeFood(x, y);
+    if (durationTicks !== undefined) {
+      // 同一格已有临时地形 → 更新过期时间；否则入队
+      const existing = this.terrainExpiry.find((t) => t.x === x && t.y === y);
+      if (existing) existing.expireTick = this.tickCounter + durationTicks;
+      else this.terrainExpiry.push({ x, y, expireTick: this.tickCounter + durationTicks });
+    }
+  }
+
+  /** v2.3.0：清除地形 */
+  clearTerrain(x: number, y: number): void {
+    if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return;
+    if (this.terrain[y][x]) {
+      this.terrain[y][x] = null;
+      this.terrainSet.delete(this.cellKey(x, y));
+    }
+    // 临时地形（火海）一并清除
+    this.terrainExpiry = this.terrainExpiry.filter((t) => !(t.x === x && t.y === y));
+  }
+
+  // ===== 奇遇种子 (v2.3.0) =====
+  /** 放置奇遇种子：指定坐标或随机空位；同时最多 1 颗。返回是否成功。 */
+  placeEncounterSeed(x?: number, y?: number): boolean {
+    if (this.encounterSeed) return false;
+    let px = x;
+    let py = y;
+    if (px === undefined || py === undefined) {
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const rx = Math.floor(Math.random() * this.config.width);
+        const ry = Math.floor(Math.random() * this.config.height);
+        if (
+          this.inBounds(rx, ry) &&
+          !this.isWall(rx, ry) &&
+          !this.terrain[ry][rx] &&
+          !this.grid[ry][rx] &&
+          this.food[ry][rx] === 0
+        ) {
+          px = rx;
+          py = ry;
+          break;
+        }
+      }
+      if (px === undefined || py === undefined) return false;
+    } else {
+      if (!this.inBounds(px, py) || this.isWall(px, py) || this.terrain[py][px] || this.grid[py][px]) return false;
+    }
+    this.encounterSeed = { x: px, y: py, id: uid('seed'), spawnedTick: this.tickCounter };
+    eventBus.emit(EVT.LOG, {
+      text: `第${this.config.currentDay}日：一道奇遇灵光于剑域(${px},${py})显现，剑意趋之若鹜！`,
+      important: true,
+    });
+    return true;
+  }
+
+  /** 剑意取得奇遇种子：剑心境界 +1（由 moveSword 踏入/瞬移至种子格时触发） */
+  claimEncounterSeed(agent: SwordAgent): void {
+    if (!this.encounterSeed) return;
+    this.encounterSeed = null;
+    agent.grantMindRealm();
   }
 
   foodAt(x: number, y: number): number {
@@ -213,6 +309,10 @@ export class World {
     if (this.grid[oy][ox] === agent.state.id) this.grid[oy][ox] = null;
     this.grid[y][x] = agent.state.id;
     agent.state.position = { x, y };
+    // v2.3.0：踏入/瞬移至奇遇种子所在格 → 取得（剑心境界 +1）
+    if (this.encounterSeed && this.encounterSeed.x === x && this.encounterSeed.y === y) {
+      this.claimEncounterSeed(agent);
+    }
   }
 
   /** 生成一个新剑意 (分化子体) */
@@ -231,7 +331,8 @@ export class World {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
           const nx = x + dx;
           const ny = y + dy;
-          if (this.inBounds(nx, ny) && !this.isWall(nx, ny) && !this.grid[ny][nx] && this.food[ny][nx] === 0) {
+          // v2.3.0：剑子不落于熔岩/深水
+          if (this.inBounds(nx, ny) && !this.isWall(nx, ny) && !this.terrain[ny][nx] && !this.grid[ny][nx] && this.food[ny][nx] === 0) {
             cells.push([nx, ny]);
           }
         }
@@ -286,7 +387,8 @@ export class World {
     for (let attempt = 0; attempt < 40; attempt++) {
       const x = Math.floor(Math.random() * this.config.width);
       const y = Math.floor(Math.random() * this.config.height);
-      if (this.inBounds(x, y) && !this.isWall(x, y) && !this.grid[y][x] && this.food[y][x] === 0) {
+      // v2.3.0：游离剑意不落于熔岩/深水
+      if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && !this.grid[y][x] && this.food[y][x] === 0) {
         const realm = options.mindRealm ?? 0;
         const st: SwordState = {
           id: uid('sw'),
@@ -317,12 +419,13 @@ export class World {
     return false;
   }
 
-  /** 手动投食：在随机空位落下一团庚金之气 */
+  /** 布霖：在随机空位落下一团庚金之气 */
   dropFoodAtRandom(): boolean {
     for (let attempt = 0; attempt < 30; attempt++) {
       const x = Math.floor(Math.random() * this.config.width);
       const y = Math.floor(Math.random() * this.config.height);
-      if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
+      // v2.3.0：避开地形（熔岩/深水不落庚金）
+      if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.food[y][x] = FOOD_ENERGY;
         this.foodCount++;
         this.foodSet.add(this.cellKey(x, y));
@@ -340,7 +443,8 @@ export class World {
         if (dx === 0 && dy === 0) continue;
         const x = cx + dx;
         const y = cy + dy;
-        if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
+        // v2.3.0：尸身不落于熔岩/深水
+        if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
           cells.push([x, y]);
         }
       }
@@ -362,7 +466,8 @@ export class World {
         if (dx === 0 && dy === 0) continue;
         const x = cx + dx;
         const y = cy + dy;
-        if (this.inBounds(x, y) && !this.walls[y][x] && !this.grid[y][x] && this.food[y][x] === 0) {
+        // v2.3.0：寄灵剑子不落于熔岩/深水
+        if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && !this.grid[y][x] && this.food[y][x] === 0) {
           cells.push([x, y]);
         }
       }
@@ -425,7 +530,8 @@ export class World {
     for (let attempt = 0; attempt < 12; attempt++) {
       const x = Math.floor(Math.random() * this.config.width);
       const y = Math.floor(Math.random() * this.config.height);
-      if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
+      // v2.3.0：庚金不落于地形
+      if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.food[y][x] = FOOD_ENERGY;
         this.foodCount++;
         this.foodSet.add(this.cellKey(x, y));
@@ -440,7 +546,8 @@ export class World {
       for (let attempt = 0; attempt < 24; attempt++) {
         const x = Math.floor(Math.random() * this.config.width);
         const y = Math.floor(Math.random() * this.config.height);
-        if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
+        // v2.3.0：开局庚金避开地形
+        if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
           this.food[y][x] = FOOD_ENERGY;
           this.foodCount++;
           this.foodSet.add(this.cellKey(x, y));
@@ -458,20 +565,29 @@ export class World {
     }
   }
 
-  /** 扶桑火种：生成临时火墙 */
-  spawnFireWalls(count: number): void {
-    let placed = 0;
-    for (let attempt = 0; attempt < count * 30 && placed < count; attempt++) {
-      const x = Math.floor(Math.random() * this.config.width);
-      const y = Math.floor(Math.random() * this.config.height);
-      if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
-        this.walls[y][x] = true;
-        this.wallSet.add(this.cellKey(x, y));
-        this.wallExpiry.push({ idx: y * this.config.width + x, expireTick: this.tickCounter + 600 });
-        placed++;
+  /** v2.3.0：手动天雷（雷劫液）——在指定格降下雷霆，与天劫天雷同伤害/特效；始终降雷展示，命中剑意则结算 */
+  strikeLightning(x: number, y: number): boolean {
+    if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return false;
+    const sid = this.grid[y][x];
+    if (sid) {
+      const s = this.swords.get(sid);
+      if (s) {
+        // 先落雷特效/音效，再结算伤害（击杀另有死亡粒子）
+        eventBus.emit(EVT.THUNDER, { x, y, element: s.state.genome.element });
+        s.state.hp -= TRIBULATION_LIGHTNING_DMG;
+        s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
+        if (s.state.hp <= 0 || s.state.energy <= 0) {
+          s.die();
+        } else {
+          // 雷劫余生：历天雷而仍存续 → 标记个体经历（鉴定标签，v2.3.0 由手动天雷延续）
+          s.state.survivedThunder = true;
+        }
+        return true;
       }
     }
-    if (placed > 0) eventBus.emit(EVT.LOG, `扶桑火种迸溅，${placed}道火墙在剑域中燃起！`);
+    // 空地处也降雷（特效展示）
+    eventBus.emit(EVT.THUNDER, { x, y, element: 'metal' });
+    return true;
   }
 
   /** 陨星铁母：生成超高能量食物 */
@@ -480,7 +596,8 @@ export class World {
     for (let attempt = 0; attempt < count * 50 && placed < count; attempt++) {
       const x = Math.floor(Math.random() * this.config.width);
       const y = Math.floor(Math.random() * this.config.height);
-      if (this.inBounds(x, y) && !this.walls[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
+      // v2.3.0：陨星真金不落于地形
+      if (this.inBounds(x, y) && !this.isWall(x, y) && !this.terrain[y][x] && this.food[y][x] === 0 && !this.grid[y][x]) {
         this.food[y][x] = MEGA_FOOD_ENERGY;
         this.foodCount++;
         this.foodSet.add(this.cellKey(x, y));
@@ -510,6 +627,11 @@ export class World {
           if (x >= nb.minX && x <= nb.maxX && y >= nb.minY && y <= nb.maxY) continue;
           this.walls[y][x] = true;
           this.wallSet.add(this.cellKey(x, y));
+          // v2.3.0：被吞噬区域的地形随之湮灭（防存档膨胀；混沌区不再渲染/生效）
+          if (this.terrain[y][x]) {
+            this.terrain[y][x] = null;
+            this.terrainSet.delete(this.cellKey(x, y));
+          }
           // 被吞噬区域的食物随之湮灭 (不占食物配额，也不再被采气)
           if (this.food[y][x] > 0) {
             this.food[y][x] = 0;
@@ -643,12 +765,15 @@ export class World {
   }
 
   // ===== 生态序列化 (续档恢复用) =====
-  /** 导出生态状态：边界/庚金/火墙/天劫开关 (P1-4 续档不丢天劫进度) */
+  /** 导出生态状态：边界/庚金/火墙/地形/天劫开关 (P1-4 续档不丢天劫进度；v2.3.0 加地形) */
   exportEcoState(): {
     bounds: { minX: number; minY: number; maxX: number; maxY: number };
     food: [number, number, number][];
     walls: [number, number][];
     wallExpiry: { idx: number; remainTick: number }[];
+    terrain?: [number, number, string][];
+    terrainExpiry?: { x: number; y: number; remainTick: number }[];
+    encounterSeed?: { x: number; y: number; id: string; spawnedTick: number } | null;
     spawnFood: boolean;
     isShrinking: boolean;
   } {
@@ -662,6 +787,13 @@ export class World {
     for (const k of this.wallSet) {
       walls.push([k % this.config.width, Math.floor(k / this.config.width)]);
     }
+    const terrain: [number, number, string][] = [];
+    for (const k of this.terrainSet) {
+      const x = k % this.config.width;
+      const y = Math.floor(k / this.config.width);
+      const t = this.terrain[y][x];
+      if (t) terrain.push([x, y, t]);
+    }
     // v2.2.1：火墙过期队列一并序列化（存剩余 tick，避免读档后火墙永久存在）
     const wallExpiry = this.wallExpiry.map((w) => ({
       idx: w.idx,
@@ -672,6 +804,13 @@ export class World {
       food,
       walls,
       wallExpiry,
+      terrain,
+      terrainExpiry: this.terrainExpiry.map((t) => ({
+        x: t.x,
+        y: t.y,
+        remainTick: Math.max(0, t.expireTick - this.tickCounter),
+      })),
+      encounterSeed: this.encounterSeed ? { ...this.encounterSeed } : null,
       spawnFood: this.config.spawnFood,
       isShrinking: this.config.isShrinking,
     };
@@ -685,9 +824,11 @@ export class World {
     this.foodCount = 0;
     this.foodSet.clear();
     this.wallSet.clear();
+    this.terrainSet.clear();
     for (let y = 0; y < this.config.height; y++) {
       this.food[y].fill(0);
       this.walls[y].fill(false);
+      this.terrain[y].fill(null);
     }
     for (const [x, y, v] of eco.food) {
       this.food[y][x] = v;
@@ -698,6 +839,21 @@ export class World {
       this.walls[y][x] = true;
       this.wallSet.add(this.cellKey(x, y));
     }
+    // v2.3.0：恢复地形（旧档无此字段 → 空）
+    for (const [x, y, t] of eco.terrain ?? []) {
+      if (t === 'lava' || t === 'deepwater') {
+        this.terrain[y][x] = t;
+        this.terrainSet.add(this.cellKey(x, y));
+      }
+    }
+    // v2.3.0：恢复奇遇种子（旧档无此字段 → 无）
+    this.encounterSeed = eco.encounterSeed ? { ...eco.encounterSeed } : null;
+    // v2.3.0：恢复临时地形过期队列（旧档无此字段 → 空）
+    this.terrainExpiry = (eco.terrainExpiry ?? []).map((t) => ({
+      x: t.x,
+      y: t.y,
+      expireTick: this.tickCounter + t.remainTick,
+    }));
     // v2.2.1：恢复火墙过期队列（旧档无此字段 → 空数组；有到期火墙按剩余 tick 重建，读档后不再永久存在）
     this.wallExpiry = (eco.wallExpiry ?? []).map((w) => ({
       idx: w.idx,
@@ -730,6 +886,18 @@ export class World {
         const y = Math.floor(w.idx / this.config.width);
         this.walls[y][x] = false;
         this.wallSet.delete(w.idx); // idx 即 cellKey
+        return false;
+      });
+    }
+
+    // v2.3.0：临时地形过期（焚天爆火海等）
+    if (this.terrainExpiry.length > 0) {
+      this.terrainExpiry = this.terrainExpiry.filter((t) => {
+        if (t.expireTick > this.tickCounter) return true;
+        if (this.terrain[t.y][t.x]) {
+          this.terrain[t.y][t.x] = null;
+          this.terrainSet.delete(this.cellKey(t.x, t.y));
+        }
         return false;
       });
     }

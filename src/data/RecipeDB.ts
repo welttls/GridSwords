@@ -13,14 +13,6 @@ export const RECIPES: Material[] = [
     count: 4,
   },
   {
-    id: 'fusang_spark',
-    name: '扶桑火种',
-    unlock: 'start',
-    description: '火种迸溅，炉中生出一道道暂时性火墙，阻绝退路。',
-    effect: { type: 'spawnFireWalls', count: 24 },
-    count: 3,
-  },
-  {
     id: 'rootless_water',
     name: '无根水',
     unlock: 'start',
@@ -35,6 +27,15 @@ export const RECIPES: Material[] = [
     description: '清风入炉，剑意御风而行，灵力消耗大幅降低。',
     effect: { type: 'temperature', value: 'breeze' },
     count: 3,
+  },
+  // ===== v2.3.0 布阵/奇遇系：与剑域地形/奇遇玩法深度联动 =====
+  {
+    id: 'encounter_seed',
+    name: '奇遇灵种',
+    unlock: 'rankTop10',
+    description: '灵种入域，机缘自现。获得 1 次「奇遇种子」布阵之数——点「布阵」在剑域自选位置种下，被剑意取得者剑心境界 +1；无需封锁，亦可自行以熔岩/深水设下试炼。',
+    effect: { type: 'formationSeed', count: 1 },
+    count: 1,
   },
   {
     id: 'fast_sword',
@@ -56,8 +57,8 @@ export const RECIPES: Material[] = [
     id: 'thunder_potion',
     name: '雷劫液',
     unlock: 'rankTop3',
-    description: '引动天雷灌入炼剑炉，唯有速度最快的剑意能在雷劫中存续。',
-    effect: { type: 'thunderstorm' },
+    description: '引动天雷，蓄于指尖。使用后点击剑域任意处降下雷霆——与天劫天雷同伤（剑体-28、精元-12），可击杀剑意。',
+    effect: { type: 'manualLightning' },
     count: 2,
   },
   {

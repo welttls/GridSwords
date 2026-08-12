@@ -2,6 +2,30 @@
 export const GRID_WIDTH = 64;
 export const GRID_HEIGHT = 64;
 
+// ===== 剑域地形 (v2.3.0) =====
+export type TerrainType = 'lava' | 'deepwater';
+/** 熔岩：一步踏入即剑体崩解（一击必杀）——普通移动进入在 performMoveTo 内立即死亡 */
+export const LAVA_INSTANT_DEATH = true;
+/** 熔岩：瞬移落地后可停留一个完整 tick，下一 tick 若仍未离开（瞬移/击退等）则剑体崩解 */
+export const LAVA_STAND_GRACE_TICKS = 1;
+/** 熔岩「致命诱惑」：极度饥饿时小概率无视避让、犯险踏入（踏入即死）——概率过低则熔岩无威胁，过高则血洗种群 */
+export const LAVA_DESPERATION_CHANCE = 0.03;
+/** 深水：减速——非水行剑意立于深水时，每 tick 有 (1 - 1/倍率) 概率行动受阻（原地待命） */
+export const DEEPWATER_SLOW_MULT = 2;
+/** 深水：额外耗精元倍率（立于深水每 tick 精元消耗 ×此倍率） */
+export const DEEPWATER_COST_MULT = 1.5;
+
+// ===== 奇遇种子 (v2.3.0) =====
+/** 每日子时奇遇种子随机出现的概率（玩家也可用「奇遇灵种」炉材主动放置） */
+export const ENCOUNTER_SEED_DAILY_CHANCE = 0.15;
+
+// ===== 技能控制/灼烧 (v2.3.0) =====
+/** 灼烧：每 tick 剑体伤害（焚天爆命中/烈焰甲附火） */
+export const BURN_DMG_PER_TICK = 1.5;
+/** 焚天爆留下的火海（临时熔岩）持续时间 tick（约 50s @4tps） */
+export const FIRE_GROUND_TICKS = 200;
+
+
 // ===== 庚金之气 (食物) =====
 export const FOOD_MAX = 15;
 export const FOOD_REGEN_RATE = 0.022; // 每 tick 生成一份食物的概率基准 (荒域灵气极其稀薄)
@@ -101,8 +125,8 @@ export const SHICHEN_NAMES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '
 export const SHICHEN_COUNT = 12;
 export const TICKS_PER_SHICHEN = TICKS_PER_DAY / SHICHEN_COUNT;
 
-// ===== 手动投食 (随时可投，每日有量) =====
-export const DAILY_FOOD_DROP = 12;   // 每日可投庚金之气团数
+// ===== 布霖 (手动布霖：随时可施，每日有量) =====
+export const DAILY_FOOD_DROP = 12;   // 每日可布霖的庚金之气团数
 export const FOOD_DROP_BATCH = 3;    // 每次点击落下团数
 
 // ===== 涌现 =====

@@ -39,8 +39,10 @@ export interface GameSave {
   tickCounter: number;
   /** 材料剩余次数 (道具化) */
   materialCounts: Record<string, number>;
-  /** 当日已投食团数 */
+  /** 当日已布霖团数 */
   feedDropped: number;
+  /** v2.3.0：布阵次数（本局语义，由炉材提供；现仅奇遇种子计次，熔岩/深水无限） */
+  formation: { seed: number };
   /** 本局剑潮选择 (v1.10.0)：上次选择，弹窗超时/关闭时沿用；null=本局未选过 */
   dailyDropKind?: 'mild' | 'tide' | 'fierce' | 'auto' | 'none' | null;
   /** 本局免剑潮弹窗 (v1.10.0)：勾选后每日自动按上次选择投放 */
@@ -59,7 +61,7 @@ export interface GameSave {
 export function defaultSave(): GameSave {
   return {
     version: 1,
-    unlockedMaterialIds: ['cold_iron', 'fusang_spark', 'rootless_water', 'wind_talisman'],
+    unlockedMaterialIds: ['cold_iron', 'rootless_water', 'wind_talisman'],
     history: [],
     bestScore: 0,
     finishedGames: 0,
@@ -71,6 +73,7 @@ export function defaultSave(): GameSave {
     tickCounter: 0,
     materialCounts: {},
     feedDropped: 0,
+    formation: { seed: 0 },
     dailyDropKind: null,
     dailyDropLocked: false,
     swords: [],
@@ -113,6 +116,9 @@ export class SaveManager {
       }
       // v2.2.1：materialCounts 是 Record 对象——Array.isArray(对象) 恒 false 导致每次读档把数据覆盖成 {}（刷新后炉材次数归零）→ 改类型判断
       if (!save.materialCounts || typeof save.materialCounts !== 'object' || Array.isArray(save.materialCounts)) save.materialCounts = {};
+      // v2.3.0：布阵次数兜底（旧档含熔岩/深水字段 → 精简为仅奇遇种子）
+      if (!save.formation || typeof save.formation !== 'object') save.formation = { seed: 0 };
+      else save.formation = { seed: save.formation.seed ?? 0 };
       return save;
     } catch {
       return defaultSave();

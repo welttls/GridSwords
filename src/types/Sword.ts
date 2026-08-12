@@ -32,6 +32,14 @@ export interface SwordState {
   buffAtkTicks?: number;
   buffDefMult?: number;
   buffDefTicks?: number;
+  /** v2.3.0：控制/灼烧/反震/免控/烈焰甲（运行时，不随血脉遗传） */
+  rootedTicks?: number;      // 定身：剩余 tick 内不可移动（青藤缚）
+  slowedTicks?: number;      // 减速：剩余 tick 内移动有概率受阻（地脉震/深水）
+  burningTicks?: number;     // 灼烧：每 tick 灼伤剑体（焚天爆/烈焰甲附火）
+  reflectPct?: number;       // 反震：受近战攻击时反弹伤害比例（金罡体/百炼守）
+  reflectTicks?: number;
+  immuneCCTicks?: number;    // 免控：免疫定身/击退/减速（磐石护）
+  flameArmorTicks?: number;  // 烈焰甲：攻击命中附灼烧
   /** 经历天雷 (雷劫液) 而存续：鉴定「雷劫余生」标签判定 (v1.9.1) */
   survivedThunder?: boolean;
   /** 剑心境界 (0=凡心 1=通明 2=洞玄 3=忘我；决定 NN 隐藏层容量与境界加成，v1.12.0) */

@@ -5,7 +5,7 @@ import { resolveBattle } from './BattleResolver';
 import { mutateGenome, genomeChanged, ELEMENT_LABEL } from './Genetics';
 import { affixName } from '../data/AffixDB';
 import { eventBus, EVT } from '../utils/eventBus';
-import { skillsFor, tryCastSkill, tickBuffs, MIND_SKILL_ULT, MIND_SKILL_POOLS, MIND_SKILL_BY_ID } from './Skills';
+import { skillsFor, tryCastSkill, tickBuffs, tickCombatStates, MIND_SKILL_ULT, MIND_SKILL_POOLS, MIND_SKILL_BY_ID } from './Skills';
 import {
   MAX_HP,
   ENERGY_SPLIT_THRESHOLD,
@@ -16,12 +16,15 @@ import {
   DECISION_THRESHOLD,
   MAX_PERCEPTION_RANGE,
   INSTINCT_RANGE,
-  GENE_MAX,
   MUTATION_STRENGTH,
   MIND_REALMS,
   MIND_REALM_THRESHOLDS,
   MIND_ENERGY_MULT,
   MIND_MAX_BONUS,
+  LAVA_DESPERATION_CHANCE,
+  DEEPWATER_SLOW_MULT,
+  DEEPWATER_COST_MULT,
+  BURN_DMG_PER_TICK,
 } from '../constants';
 import { maxHpOf, maxEnergyOf } from './swordStats';
 import { clamp, randomInt, shuffle } from '../utils/mathUtils';
@@ -184,6 +187,19 @@ export class SwordAgent {
       bias[this.dirTo(food.dx, food.dy)] += hunger * 1.0 * closeness + nearBonus;
     }
 
+    // v2.3.0：奇遇种子——超强吸引（可隔熔岩感应；趋之若鹜是谜题驱动力，能否取得看手段）
+    const seed = this.world.encounterSeed;
+    if (seed) {
+      const pos = this.state.position;
+      const sdx = seed.x - pos.x;
+      const sdy = seed.y - pos.y;
+      const sdist = Math.abs(sdx) + Math.abs(sdy);
+      if (sdist <= MAX_PERCEPTION_RANGE) {
+        const closeness = clamp(1 - sdist / (MAX_PERCEPTION_RANGE + 1), 0.4, 1);
+        bias[this.dirTo(sdx, sdy)] += 1.6 * closeness; // 强于食物(1.0)与逐敌(0.7)
+      }
+    }
+
     // 攻击本能：近旁有敌意剑意且状态良好 → 逐敌 (好战须量力；v2.0.0：门槛 0.5→0.4，中庸杀性也寻敌战斗)
     if (enemy && aggr > 0.4 && enemy.dist <= 6 && hpRatio > 0.35) {
       const closeness = clamp(1 - enemy.dist / 7, 0.35, 1);
@@ -296,11 +312,21 @@ export class SwordAgent {
   /** 行动：移动/吃/战斗；目标被阻挡则尝试其他方向，避免卡墙。返回是否实际移动。 */
   act(dir: number): void {
     const tryMove = (d: number): boolean => {
+      if (this.isDead()) return false; // v2.3.0：已陨落（熔岩焚身等）不再行动
       const dd = MOVES[d];
       const x = this.state.position.x + DIRS[dd].dx;
       const y = this.state.position.y + DIRS[dd].dy;
       if (this.world.inBounds(x, y) && !this.world.isWall(x, y)) {
         // v1.12.0：血亲占位视作阻挡（performMoveTo 返回 false），绕行而过
+        return this.performMoveTo(x, y);
+      }
+      // v2.3.0：熔岩「致命诱惑」——极度饥饿时小概率无视避让、犯险踏入（一步踏入即剑体崩解）
+      if (
+        this.world.inBounds(x, y) &&
+        this.world.isLava(x, y) &&
+        this.hungerLevel() > 0.85 &&
+        Math.random() < LAVA_DESPERATION_CHANCE
+      ) {
         return this.performMoveTo(x, y);
       }
       return false;
@@ -329,6 +355,11 @@ export class SwordAgent {
   }
 
   private performMoveTo(x: number, y: number): boolean {
+    // v2.3.0：一步踏入熔岩，剑体崩解（一击必杀）——普通移动/执念犯险的唯一下场
+    if (this.world.isLava(x, y)) {
+      this.die();
+      return false;
+    }
     this.prevCell = { x: this.state.position.x, y: this.state.position.y };
     this.state.facing = { x: x - this.state.position.x, y: y - this.state.position.y };
     this.actedThisTick = true; // 移动/采气/碰撞皆耗精元
@@ -415,22 +446,39 @@ export class SwordAgent {
     this.recheckAffixes();
     this.checkMindRealm();
     if (this.skillCd > 0) this.skillCd--;
+
+    // v2.3.0：控制状态——定身（青藤缚）/减速（地脉震）/深水阻滞（先读后减，避免被缩短一 tick）
+    const rooted = (this.state.rootedTicks ?? 0) > 0;
+    const slowed = (this.state.slowedTicks ?? 0) > 0 && Math.random() < 1 - 1 / DEEPWATER_SLOW_MULT;
+    const deepMired =
+      this.world.isDeepWater(this.state.position.x, this.state.position.y) &&
+      this.state.genome.element !== 'water' &&
+      Math.random() < 1 - 1 / DEEPWATER_SLOW_MULT;
+    const mired = rooted || slowed || deepMired;
+
     tickBuffs(this.state);
-    const dir = this.decide();
-    this.act(dir);
-    // v2.2.1：行动后立即查死——反震/碰撞致死不再继续追击或施放技能（原死亡检查在 tick 末尾，滞后一整步，wood 回春术可诈尸回正血）
-    if (this.isDead()) { this.die(); return; }
-    // v2.0.0：残血追击加速——锁定追击时身法如风，每 tick 多追一步，追上逃逸之敌
-    if (this.huntTargetId && this.huntDir()) {
-      this.act(this.decide());
+    tickCombatStates(this.state); // v2.3.0：反震/免控/烈焰甲/定身/减速/灼烧计时
+
+    // v2.3.0：熔岩——立于其上（瞬移落地）超过一个完整 tick 即剑体崩解；踏入（普通移动进入）已在 performMoveTo 即死
+    const wasOnLava = this.world.isLava(this.state.position.x, this.state.position.y);
+
+    if (!mired) {
+      const dir = this.decide();
+      this.act(dir);
+      // v2.2.1：行动后立即查死——反震/碰撞致死不再继续追击或施放技能（原死亡检查在 tick 末尾，滞后一整步，wood 回春术可诈尸回正血）
       if (this.isDead()) { this.die(); return; }
-    }
-    // 无根水·身法加成：每 tick 有几率额外行动一步 (移动更迅疾，采气/避敌更快)
-    const speedBonus = this.world.modifiers.speedBonus;
-    if (speedBonus > 0 && Math.random() < speedBonus * 0.2) {
-      const extraDir = this.decide();
-      this.act(extraDir);
-      if (this.isDead()) { this.die(); return; }
+      // v2.0.0：残血追击加速——锁定追击时身法如风，每 tick 多追一步，追上逃逸之敌
+      if (this.huntTargetId && this.huntDir()) {
+        this.act(this.decide());
+        if (this.isDead()) { this.die(); return; }
+      }
+      // 无根水·身法加成：每 tick 有几率额外行动一步 (移动更迅疾，采气/避敌更快)
+      const speedBonus = this.world.modifiers.speedBonus;
+      if (speedBonus > 0 && Math.random() < speedBonus * 0.2) {
+        const extraDir = this.decide();
+        this.act(extraDir);
+        if (this.isDead()) { this.die(); return; }
+      }
     }
     // 剑意技能 (五行天赋 + 词条)：耗精元、有冷却
     if (this.skillCd <= 0 && this.state.energy > 5 && !this.isDead()) {
@@ -445,12 +493,22 @@ export class SwordAgent {
       BASE_ENERGY_CONSUMPTION * (1 + g.speed * 0.05 + g.sharpness * 0.03 + g.toughness * 0.02);
     cost *= this.actedThisTick ? 1 : IDLE_MULT; // 静养耗精元大减
     cost *= MIND_ENERGY_MULT[this.state.mindRealm ?? 0]; // 剑心愈明，维持愈省 (v1.12.0)
+    // v2.3.0：立于深水，精元消耗加剧（水行免疫）
+    if (this.world.isDeepWater(this.state.position.x, this.state.position.y) && g.element !== 'water') {
+      cost *= DEEPWATER_COST_MULT;
+    }
     // v2.1.0：水系「轻灵」耗神 -15% 已移除——食物效率（采食回能 ×1.35）已足够支撑水系生存
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
     if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
     // v2.2.1：battleMods 剑诀修饰已移除（宗门大比走 Duel Fighter，野外从不赋值）
     this.state.energy -= cost;
+
+    // v2.3.0：熔岩停留致死——本 tick 开始即在熔岩上，行动+施法后仍未离开 → 剑体崩解（瞬移落地当 tick 豁免，可再瞬移/移动逃生）
+    if (wasOnLava && this.world.isLava(this.state.position.x, this.state.position.y)) {
+      this.die();
+      return;
+    }
 
     // 缓慢回气 (v2.1.0：水系「生生不息」回血 ×2.0 保留，与采食回能 ×1.35 共同构成水系差异化)
     const regen = HP_REGEN_PER_TICK * (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1);
@@ -463,16 +521,9 @@ export class SwordAgent {
       this.state.poisonTicks = (this.state.poisonTicks ?? 0) - 1;
     }
 
-    // 雷劫 (雷劫液)：速度越慢越易被雷击
-    if (mods.thunderstorm && Math.random() < 0.03) {
-      const strikeChance = clamp(1 - this.state.genome.speed / GENE_MAX, 0.1, 1);
-      if (Math.random() < strikeChance) {
-        this.state.hp -= 25;
-        this.state.energy -= 12;
-        // 雷劫余生：历雷击而仍存续 → 标记个体经历 (鉴定标签据此判定，v1.9.1)
-        if (this.state.hp > 0 && this.state.energy > 0) this.state.survivedThunder = true;
-        eventBus.emit(EVT.THUNDER, { x: this.state.position.x, y: this.state.position.y });
-      }
+    // v2.3.0：灼烧（焚天爆命中/烈焰甲附火）——剑体被烈火燎灼
+    if ((this.state.burningTicks ?? 0) > 0) {
+      this.state.hp -= BURN_DMG_PER_TICK;
     }
 
     if (this.state.energy <= 0 || this.state.hp <= 0) {
@@ -507,6 +558,7 @@ export class SwordAgent {
   }
 
   die(): void {
+    this.state.hp = 0; // v2.3.0：陨落后 hp 归零（熔岩焚身路径先置 0；统一在此兜底，防「诈尸」再动）
     eventBus.emit(EVT.DEATH, {
       x: this.state.position.x,
       y: this.state.position.y,
@@ -527,14 +579,36 @@ export class SwordAgent {
     const th = MIND_REALM_THRESHOLDS[realm];
     // v2.0.0：只看击破（杀伐之证）
     if (b.killCount < th.kills) return;
-    const next = realm + 1;
+    this.applyMindPromotion(realm + 1, 'slaughter');
+  }
+
+  /** v2.3.0：奇遇种子——直接提升一级剑心境界（已臻忘我则机缘化为精纯灵力补满） */
+  grantMindRealm(): void {
+    const realm = this.state.mindRealm ?? 0;
+    if (realm >= MIND_REALMS.length - 1) {
+      this.state.hp = maxHpOf(this.state);
+      this.state.energy = maxEnergyOf(this.state);
+      eventBus.emit(EVT.MIND, null);
+      eventBus.emit(EVT.LOG, {
+        text: `第${this.world.config.currentDay}日：一道剑意取得奇遇灵种，然已臻忘我之境，机缘化为精纯灵力，剑体精元尽数补满！`,
+        focusId: this.state.id,
+        important: true,
+        rareToast: '✨ 奇遇灵光散为灵力，剑体精元补满！',
+      });
+      return;
+    }
+    this.applyMindPromotion(realm + 1, 'fortune');
+  }
+
+  /** 剑心晋境通用：扩容/上限+50/回满/绝技/日志（v2.3.0 由杀伐晋升与奇遇种子共用） */
+  private applyMindPromotion(next: number, source: 'slaughter' | 'fortune'): void {
     this.state.mindRealm = next;
     this.brain.expandHidden(MIND_REALMS[next].hidden);
     // 同步序列化快照，防存档读到扩容前的旧长度
     this.state.brainWeights = this.brain.getWeights();
     this.state.brainBiases = this.brain.getBiases();
     // v2.1.0：顿悟回春——晋境瞬间剑体回满、精元补满（低于分化阈值，不立即分化），防顿悟后被捡漏
-    // v2.2.0：晋境同时剑体/精元上限 +50（凡心 100/80 → 通明 150/130 → 洞玄 200/180 → 忘我 250/230）
+    // v2.2.0：晋境同时剑体/精元上限 +50（凡心 95/80 → 通明 145/130 → 洞玄 195/180 → 忘我 245/230）
     this.state.maxHp = (this.state.maxHp ?? MAX_HP) + MIND_MAX_BONUS;
     this.state.maxEnergy = (this.state.maxEnergy ?? ENERGY_SPLIT_THRESHOLD) + MIND_MAX_BONUS;
     this.state.hp = maxHpOf(this.state);
@@ -546,13 +620,16 @@ export class SwordAgent {
     if (next === MIND_REALMS.length - 1) {
       if (!skills.includes(MIND_SKILL_ULT.id)) skills.push(MIND_SKILL_ULT.id);
       eventBus.emit(EVT.LOG, {
-        text: `第${this.world.config.currentDay}日：一道剑意臻至「${name}」，顿悟终极剑意「${MIND_SKILL_ULT.name}」！`,
+        text:
+          source === 'fortune'
+            ? `第${this.world.config.currentDay}日：一道剑意得奇遇灵种灌顶，臻至「${name}」，顿悟终极剑意「${MIND_SKILL_ULT.name}」！`
+            : `第${this.world.config.currentDay}日：一道剑意臻至「${name}」，顿悟终极剑意「${MIND_SKILL_ULT.name}」！`,
         focusId: this.state.id,
         important: true,
         rareToast: `🌟 剑心「${name}」！悟得大招「${MIND_SKILL_ULT.name}」`,
       });
     } else {
-      const pool = MIND_SKILL_POOLS[realm];
+      const pool = MIND_SKILL_POOLS[next - 1];
       const candidates = pool.filter((s) => !skills.includes(s.id));
       if (candidates.length > 0) {
         if (this.state.origin === 'seed') {

@@ -21,6 +21,8 @@ const BGM_FILES: Record<'menu' | 'forge' | 'battle', string> = {
 const BGM_VOLUME = 0.4;
 /** crossfade 循环：结尾前淡出→重播→淡入（Suno/下载曲带 intro/outro，直接 loop 会断） */
 const BGM_FADE_MS = 1800;
+/** 音频设置持久化键（v2.3.1：音量滑块/开关跨会话保存） */
+const AUDIO_SAVE_KEY = 'swordforge-audio-v1';
 
 /** 音效相对音量（相对 BGM） */
 const SFX_VOLUME: Record<SfxId, number> = {
@@ -51,6 +53,9 @@ class AudioManager {
   private sfxGain: GainNode | null = null;
   private musicEnabled = true;
   private sfxEnabled = true;
+  /** v2.3.1：音量滑块 0~1 */
+  private musicVolume = 1;
+  private sfxVolume = 1;
   private unlocked = false;
   private lastSfx: Partial<Record<SfxId, number>> = {};
 
@@ -86,6 +91,7 @@ class AudioManager {
   };
 
   constructor() {
+    this.loadSettings();
     // 订阅游戏事件（与 Renderer 同构；headless 无监听即 no-op）
     eventBus.on(EVT.SKILL, this.hSkill);
     eventBus.on(EVT.THUNDER, this.hThunder);
@@ -114,6 +120,46 @@ class AudioManager {
       this.pendingTrack = null;
       this.startBgm(t);
     }
+  }
+
+  // —— v2.3.1：音量设置持久化 ——
+  private loadSettings(): void {
+    try {
+      const raw = localStorage.getItem(AUDIO_SAVE_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw) as { musicEnabled?: unknown; sfxEnabled?: unknown; musicVolume?: unknown; sfxVolume?: unknown };
+      if (typeof s.musicEnabled === 'boolean') this.musicEnabled = s.musicEnabled;
+      if (typeof s.sfxEnabled === 'boolean') this.sfxEnabled = s.sfxEnabled;
+      if (typeof s.musicVolume === 'number') this.musicVolume = this.clamp01(s.musicVolume);
+      if (typeof s.sfxVolume === 'number') this.sfxVolume = this.clamp01(s.sfxVolume);
+    } catch {
+      // 损坏数据：忽略
+    }
+  }
+
+  private saveSettings(): void {
+    try {
+      localStorage.setItem(
+        AUDIO_SAVE_KEY,
+        JSON.stringify({
+          musicEnabled: this.musicEnabled,
+          sfxEnabled: this.sfxEnabled,
+          musicVolume: this.musicVolume,
+          sfxVolume: this.sfxVolume,
+        }),
+      );
+    } catch {
+      // 隐私模式等：忽略
+    }
+  }
+
+  private clamp01(v: number): number {
+    return Math.max(0, Math.min(1, v));
+  }
+
+  /** 有效 BGM 音量（开关 × 滑块 × 基础音量） */
+  private effectiveMusicVolume(): number {
+    return this.musicEnabled ? BGM_VOLUME * this.musicVolume : 0;
   }
 
   /** 预加载某曲目（不播放，提前缓存——切曲时秒开，避免进场景后等待） */
@@ -158,7 +204,7 @@ class AudioManager {
     });
     this.bgmEl = el;
     el.play()
-      .then(() => this.rampVolume(el, BGM_VOLUME, BGM_FADE_MS))
+      .then(() => this.rampVolume(el, this.effectiveMusicVolume(), BGM_FADE_MS))
       .catch(() => {
         // autoplay 被拒：保留待播，等下次 unlock
         this.pendingTrack = track;
@@ -214,7 +260,7 @@ class AudioManager {
     if (this.ctx.state === 'suspended') this.ctx.resume();
     const vol = SFX_VOLUME[id] ?? 0.4;
     const g = this.ctx.createGain();
-    g.gain.value = vol;
+    g.gain.value = vol * this.sfxVolume; // v2.3.1：叠加音量滑块
     g.connect(this.sfxGain);
     playSfxSynth(this.ctx, g, id);
     // v2.2.1：合成结束后显式断开增益节点——原实现从不 disconnect，外层 g 永久挂在音频图上（每小时可泄漏数千 GainNode）
@@ -234,12 +280,13 @@ class AudioManager {
     if (!AC) return;
     this.ctx = new AC();
     this.sfxGain = this.ctx.createGain();
-    this.sfxGain.gain.value = this.sfxEnabled ? 1 : 0;
+    this.sfxGain.gain.value = this.sfxEnabled ? this.sfxVolume : 0;
     this.sfxGain.connect(this.ctx.destination);
   }
 
   setMusicEnabled(on: boolean): void {
     this.musicEnabled = on;
+    this.saveSettings();
     if (on) {
       if (this.currentTrack) this.startBgm(this.currentTrack);
     } else {
@@ -249,7 +296,24 @@ class AudioManager {
 
   setSfxEnabled(on: boolean): void {
     this.sfxEnabled = on;
-    if (this.sfxGain) this.sfxGain.gain.value = on ? 1 : 0;
+    this.saveSettings();
+    if (this.sfxGain) this.sfxGain.gain.value = on ? this.sfxVolume : 0;
+  }
+
+  /** v2.3.1：背景乐音量滑块 0~1 */
+  setMusicVolume(v: number): void {
+    this.musicVolume = this.clamp01(v);
+    this.saveSettings();
+    if (this.bgmEl && this.bgmPlayingTrack && !this.bgmFading) {
+      this.rampVolume(this.bgmEl, this.effectiveMusicVolume(), 120);
+    }
+  }
+
+  /** v2.3.1：音效音量滑块 0~1 */
+  setSfxVolume(v: number): void {
+    this.sfxVolume = this.clamp01(v);
+    this.saveSettings();
+    if (this.sfxGain) this.sfxGain.gain.value = this.sfxEnabled ? this.sfxVolume : 0;
   }
 
   getMusicEnabled(): boolean {
@@ -258,6 +322,14 @@ class AudioManager {
 
   getSfxEnabled(): boolean {
     return this.sfxEnabled;
+  }
+
+  getMusicVolume(): number {
+    return this.musicVolume;
+  }
+
+  getSfxVolume(): number {
+    return this.sfxVolume;
   }
 
   /** 解绑事件（页面卸载/测试清理用） */

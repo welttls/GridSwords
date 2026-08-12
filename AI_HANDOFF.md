@@ -68,7 +68,7 @@ src/
 ## 五、核心玩法机制
 
 1. **择剑胚**：五行五选一，选后 `startNewRun(element)`。**v2.0.0 五行差异化**：初始剑谱按模板（上限 10）——火 8/4/5/5（爆发·杀性 0.55-0.8 嗜战追杀）、木 5/6/6/6（均衡·杀性 0.35-0.47 温和·**淬毒/毒木反噬专属**）、土 5/9/3/5（铁壁·慢·杀性 0.35-0.47 温和·**厚土反震**）、金 6/5/8/5（快剑·杀性 0.5-0.7 好战）、水 5/6/6/7（感知·杀性 0.4-0.55·**生生不息**：回血 ×2.0 WATER_REGEN_MULT + 采食回能 ×1.35（v2.1.0 已移除受击减免 15% 与耗神 -15%，食物效率已足够支撑水系立足））；游离剑意（剑潮）亦按模板+天数强度。伤害公式 `max(1, ceil(攻伐×0.35), 攻伐−坚韧×0.4)`（追击锁定再 +30%）；杀性驱动追击执着度，主动攻击门槛 0.4。**水存活关键**：死因多为饿死（能量耗尽），采食回能 ×1.35 是决定性修复（headless 水存活从垫底升至前列）。**土系厚土反震**：`BattleResolver` 守方土系时反震 = 伤害×0.8（不受追击减半），反震磨死攻击者计土系 killCount（被动击杀路径，headless 土系 3/3 局晋升、存活王）。
-2. **炼剑十日**：随时投食(每日 12 团)、炉材道具化(次数制)、每日子时剑潮(mild/tide/fierce/none/auto)——v1.10.0 起弹窗默认高亮上次选择 + 6 秒倒计时(超时沿用上次/首日静待天时)，可勾选「本局一直用此选择」免弹窗(存档 `dailyDropKind`/`dailyDropLocked`，新局重置、续玩保留)。v1.11.0 起 HUD 底栏新增「剑潮」按钮可随时改偏好(下次子时生效)、「重种本命」按钮(本命灭绝可手动种回)；「本命血脉已绝」弹窗三选项(重新种下/暂不重种/罢了)且同日内限弹 1 次。
+2. **炼剑十日**：随时**布霖**(原「投食」，v2.3.0 改名，每日 12 团)、炉材道具化(次数制)、每日子时剑潮(mild/tide/fierce/none/auto)——v1.10.0 起弹窗默认高亮上次选择 + 6 秒倒计时(超时沿用上次/首日静待天时)，可勾选「本局一直用此选择」免弹窗(存档 `dailyDropKind`/`dailyDropLocked`，新局重置、续玩保留)。v1.11.0 起 HUD 底栏新增「剑潮」按钮可随时改偏好(下次子时生效)、「重种本命」按钮(本命灭绝可手动种回)；「本命血脉已绝」弹窗三选项(重新种下/暂不重种/罢了)且同日内限弹 1 次。**v2.3.0**：HUD 新增「布阵」按钮（地图编辑：熔岩/深水/清除/奇遇种子，次数由炉材提供，天劫期禁用）；重种弹窗内嵌五行卡片（默认高亮当前五行，可改选，重种后同步 `embryoGenome`/存档）；每日子时奇遇种子低概率随机显现（`ENCOUNTER_SEED_DAILY_CHANCE=0.15`）。
 3. **涌现**：剑意数 ≥20(`EMERGENCE_THRESHOLD`)且世代 ≥6(`EMERGENCE_MIN_GEN`)→「自成气候」，可点击聚焦。
 4. **天劫**：第 10 日食物停生、边界向内收缩(每 8 tick 一格)至 **4×4**（v2.1.0：**最终留场**——给落雷/战斗特效展示空间；到 4×4 后不再缩墙、不再落雷，防天雷误杀决胜）；收缩同步**全领域天雷**（伤害 28/耗精元 12，道数受**场地面积钳制**：区域越小越稀疏）；边缘剑意**向内挤入**（不再墙杀：原位向中心退一步压缩，**挤入遇阻直接争斗**、败者弹开）；**天劫临时杀性**：`TRIBULATION_AGGRESSION_BONUS=0.4` + **恐惧本能失效**（`SwordAgent.instinctBias` 天劫收束期间不逃离）——困兽犹斗、谁都要争夺；**天劫期间血亲亦相争**（`kinProtected()` 在 isShrinking 时失效）；**斗至最后一柄**：只剩 1 柄即结束，`TRIBULATION_MAX_TICKS=1 日` 超时强制收束兜底（多幸存者时鉴定取最优）；幸存者评本命剑；v1.10.0 起失败(无幸存者)弹「剑意尽灭」界面(存活峰值/全灭日 + 重新炼剑快捷入口)，仍不得剑尘。headless：无干预/扶持 **18/18 恰好 1 柄胜出、零尽灭、零超时**；扶持胜者含忘我/洞玄。
 5. **剑成鉴定**：评分 = 存续×10 + 血脉相承×20 + 剑谱总和×0.5 + 本性殊异(≤15)。
@@ -86,20 +86,24 @@ src/
 
 **词条系统**(`AffixDB.ts`，存于 `Genome.affixes` 可遗传)：eat30 吞金(采气≥20) / kill5 斩念(击破≥3) / fight15 百炼(历经≥25战) / roam400 游历(足迹≥350 且密度≥0.35/tick，即每时辰≥28 格) / poison 淬毒(**v2.0.0 木行专属**：木+存续≥2500+历经≥15战；毒伤 2/36tick；**毒木反噬**——淬毒木剑被攻击时攻击者反中毒，BattleResolver) / parasite 寄灵(rare，木行+合击+世代≥4)。判定在 `SwordAgent.recheckAffixes()` 每 tick 参悟。**v1.8.0 门槛放宽、v1.9.0 淬毒加行为要求(存续2500/15战)、v1.11.0 百炼 25 战 / 游历改足迹密度(苟活久者不悟)、v2.0.0 淬毒归木系**。
 
-**剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。
+**剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。**v2.3.0 机制差异化**（同类技能不再只是数值差）：青藤缚命中**定身**（`rootedTicks`）、惊涛斩**击退**（`knockback`）、焚天爆命中**灼烧**（`burningTicks`）+余烬化**火海**（临时熔岩）、地脉震**减速**（`slowedTicks`）、金罡体/百炼守**反震**（`reflectPct`）、磐石护**免控**（`immuneCCTicks`）、烈焰甲**附火**（`flameArmorTicks`）。控制字段全在 `SwordState`（运行时可选字段），`Skills.tickCombatStates` 递减；`BattleResolver`/`Skills.damageSword` 统一接入反震/附火。
+
+**剑域地形与奇遇(v2.3.0)**：`World.terrain` 层（`TerrainType='lava'|'deepwater'` + `terrainSet` 增量集合 + `terrainExpiry` 临时地形队列，随 `exportEcoState` 序列化）。**熔岩**=一步踏入即死（`performMoveTo` 顶部判定）、视作壁垒避让（`isWall` 含 lava）、饥饿执念小概率犯险（`LAVA_DESPERATION_CHANCE`）、瞬移/击退可渡（落地/被击入熔岩即死）、立于其上超一完整 tick 即死；**深水**=可通行但减速（`mired` 概率受阻）+ 耗精元 ×1.5（水行免疫）。**奇遇种子**=`World.encounterSeed`（单颗），`placeEncounterSeed`/`claimEncounterSeed`（`moveSword` 踏入/瞬移自动触发），取得 → `SwordAgent.grantMindRealm`（境界+1，复用 `applyMindPromotion`，忘我后化灵力补满）；剑意强吸引（instinctBias 权重 1.6）；瞬移技能在种子 6 格内直取种子格。**奇遇灵种是独立投入物**——`formationSeed` 炉材授予 1 次布阵之数（非直接放置），玩家在布阵模式（暂停）自主选位种下，可自选是否以熔岩/深水封锁。**布阵 UI**：HUD「布阵」→ `Game.toggleFormationMode`（暂停+单行紧凑工具栏+点画拖动），笔刷=熔岩/深水/恢复/奇遇种子（`FORMATION_TIPS` 悬浮说明）；**熔岩/深水/恢复均不限次**（`clearTerrain` 去熔岩/深水/临时火海），仅奇遇种子计次（`GameSave.formation.seed`）；**布阵模式下画布下移让位（`.forge-screen.forming .canvas-host` padding-top），工具栏不遮挡剑域**；天劫期禁用。**手动天雷**：雷劫液 → `Game.lightningArmed` → 点击画布 → `World.strikeLightning`（同天劫伤害/特效，幸存者标 `survivedThunder`「雷劫余生」）。
 
 ## 六、炉材一览(RecipeDB)
 
 | 材料 | 效果 | 次数 |
 | --- | --- | --- |
 | 千年寒铁 | 庚金生成 +40% | 4 |
-| 扶桑火种 | 生成临时火墙 | 3 |
 | 无根水 | **全体身法 +0.5(每 tick 有几率额外行动一步，移动更迅疾)** | 3 |
 | 御风符 | 温度→清风(能耗 -40%) | 3 |
+| **奇遇灵种 (v2.3.0)** | **获得 1 次「奇遇种子」布阵之数（布阵模式自选位置种下，取得者剑心境界+1）；万剑榜前10 解锁** | 1 |
 | 《快剑总纲》残篇 | 分化速度突变率 ×3 | 2 |
 | 《重剑无锋诀》 | 分化坚固突变率 ×3、速度突变率降 | 2 |
-| 雷劫液 | 天雷(速度越慢越易被击) | 2 |
+| **雷劫液 (v2.3.0)** | **手动天雷：使用后武装一次引雷，点击剑域任意处降雷（剑体-28/精元-12，同天劫伤害/特效，可击杀；幸存者标「雷劫余生」）** | 2 |
 | 陨星铁母 | 撒超高能量食物 + 攻击欲望 +0.3 | 1 |
+
+> v2.3.0：「投食」改名「**布霖**」（全量替换按钮/日志/注释）；**熔岩/深水/恢复布阵不限次数**（已删「扶桑火种/赤地灵契/玄冥真水」）；「雷劫液」由全图被动雷劫改**手动天雷**（`World.strikeLightning`，废弃 `modifiers.thunderstorm`）；布阵系仅「奇遇灵种」计次（`GameSave.formation.seed`）。
 
 ## 七、调试
 
@@ -130,7 +134,7 @@ src/
   - ~~`World⇄SwordAgent` 运行时循环依赖~~ ✅ v1.9.2 已打破（`SwordAgent` 对 `World` 改 type-only import，编译期擦除）。
   - ~~`RankingManager.submit` 未接入~~ ✅ v1.9.2 已接入 `finishAppraisal`（`submit()` 现返回排序截断后的 `list`）；`finishBattle` 的「更新既有 entry 重排」语义不同，保持内联。
   - ~~`embryoElement` 只写不读~~ ✅ v1.9.2 已删除（`embryoGenome` 已含 element）。
-- **素材 TODO**：字体(等 woff2)、水墨背景已接(`pic/` → `public/img/battle/`)。**音频 ✅ v2.2.0**：三场景 BGM(`public/audio/bgm/menu|forge|battle_theme`，带 `[前缀]` 文件名，代码 `encodeURI` 引用)+ Web Audio 合成 8 音效(`src/audio/sfxSynth.ts`)。
+- **素材 TODO**：字体(等 woff2)、水墨背景已接(`pic/` → `public/img/battle/`)。**音频 ✅ v2.2.0**：三场景 BGM(`public/audio/bgm/menu|forge|battle_theme`，带 `[前缀]` 文件名，代码 `encodeURI` 引用)+ Web Audio 合成 8 音效(`src/audio/sfxSynth.ts`)。**v2.3.0 音量设置 ✅**：`src/ui/AudioPanel.ts` 面板（主菜单/大比「音律」入口），背景乐/音效 开关+音量滑块，持久化 `swordforge-audio-v1`（`AudioManager.musicVolume/sfxVolume`，BGM 有效音量 = 开关×滑块×0.4）。
 - **观察项**：~~`randomWildGenome` 后期属性顶格同质化~~ ✅ v1.9.1（scale 0.18→0.12：wild 顶格 67%→15%、fierce 去 day+1 且加成下调 54%→36%；平衡复验 无干预 6.83 / 扶持 14.25）；~~感知范围不一致~~ ✅ v1.9.1 提取 `INSTINCT_RANGE=10` 自文档化（行为不变）；~~buff 触发率硬编码 0.01~~ ✅ v1.9.1 提取 `BUFF_CAST_CHANCE=0.01`（行为不变）；~~「雷劫余生」世界级开关~~ ✅ v1.9.1 改个体 `survivedThunder`。
 - **v1.10.0 新功能（已完成）**：失败弹窗（峰值/全灭日+重新炼剑快捷入口）；炼剑界面分类条（五行 + 本命/外来实时统计）；剑潮弹窗升级——本局记忆 `dailyDropKind`（默认高亮上次）+ 6 秒倒计时（超时沿用上次/首日静待天时）+ 免弹窗勾选 `dailyDropLocked`（存档字段，新局重置、续玩保留）。
 - **v1.11.0（已完成）**：悟道之树不再把外来剑拼成本命后代（链根非 rootId 时树根显示「外来剑意」）；血脉断绝弹窗三选项+同日内限弹 1 次+HUD「重种本命」；HUD「剑潮」偏好面板（随时改选择/免弹窗）；词条重设——百炼 25 战、游历改足迹密度(≥350 且 ≥0.35/tick)（headless：无干预 avg 6 / 扶持 avg 13）。
@@ -147,7 +151,7 @@ src/
 - **部署路径**：JS 里引用 public 资源必须 `import.meta.env.BASE_URL + '...'` 拼接(BattleScene 大比背景、swordIcon 剑图)，别写死 `/img/...` 根绝对路径(子路径托管 404)；`src/vite-env.d.ts` 提供 `import.meta.env` 类型。
 - **资源体积**：`bg_1.jpg`(168KB) 由原 `bg_1.png`(4.2MB) 压缩而来——大图先压再入库。
 - **性能/移动端**：Pixi `resolution` 已钳制 `min(dpr, 2)`(手机 3x 背缓冲 1920² 每帧全量重绘开销大)；画布 `touch-action:none`；移动端用 `100dvh` + `env(safe-area-inset-bottom)`。
-- **World 增量集合(v1.8.1)**：`World` 维护 `foodCells`/`wallCells` 两个 `Set<number>`(键=`y*width+x`)，渲染端只遍历集合而非全网格——**新增/移除食物或墙的逻辑必须同步维护这两个集合**(`spawnFood`/`removeFood`/`spawnCorpseFood`/`spawnMegaFood`/`spawnFireWalls`/`shrink`/`wallExpiry`/`restoreEcoState` 等处)。
+- **World 增量集合(v1.8.1 / v2.3.0 加 terrainSet)**：`World` 维护 `foodCells`/`wallCells`/`terrainCells` 三个 `Set<number>`(键=`y*width+x`)，渲染端只遍历集合而非全网格——**新增/移除食物/墙/地形的逻辑必须同步维护这些集合**(`spawnFood`/`removeFood`/`spawnCorpseFood`/`spawnMegaFood`/`spawnFireWalls`/`shrink`/`wallExpiry`/`setTerrain`/`clearTerrain`/`terrainExpiry`/`restoreEcoState` 等处)。**熔岩**同时要顾及 `isWall`(视作壁垒)、`performMoveTo` 踏入即死、`SwordAgent.tick` 停留致死、生成逻辑避让。
 - **特效系统(v1.9.0)**：野外 `Renderer` 三层特效——粒子 `spawnBurst` / `effects` 弹道环束(proj/ring/beam，`updateEffects`+`drawEffects`) / `floatTexts` 飘字(Pixi Text，上限8、destroy 清理)，**全部技能(projectile/aoe/line/heal/buff/teleport)施放均有技能名飘字**；buff 常驻光环与淬毒绿闪边在 `drawSword()` 直接读剑状态每帧绘制。大比 `BattleScene.playFx()` 按 `DuelFx` 播 DOM 特效(`.duel-fx` CSS)，strike 类(锋行/青藤缚等)也有基础斩击弧光。新增特效保持同款：字段级 handler、destroy 清理、飘字上限。
 - **存档时机**：除 5s 自动 + 事件触发外，`pagehide`/`visibilitychange(hidden)` 会再存一次(iOS `beforeunload` 不可靠)，防关页丢进度。
 - **剑心境界序列化(v1.12.0)**：`SwordState.mindRealm` 决定 NN 隐藏层容量——**`SimpleNN.sizes` 已改可变**；剑心扩容（`expandHidden`）后必须同步 `state.brainWeights/brainBiases`（`checkMindRealm` 内已做），且 `Game.exportSave` 从**活 brain** 取权重（不要用 state 快照，扩容后会过期）；重建 NN 一律用 `mindSizes(realm)`（Game.continueRun/agentFromState）。
@@ -157,6 +161,8 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.3.0（2026-08-12）**：剑域布阵（地形层 熔岩/深水 + 地图编辑 UI + 布阵次数炉材化）、奇遇种子（剑心境界+1、熔岩封锁瞬移可渡）、重种本命可选五行、布霖改名、技能机制差异化（定身/击退/灼烧+火海/减速/反震/免控/附火）、**音律设置**（主菜单/大比「音律」面板：背景乐/音效 开关+音量滑块，持久化 `swordforge-audio-v1`）。headless：无干预 avg 5.8 / 扶持 avg 50.8（与历史基准一致，零崩溃），完整十日+天劫 3/3 一柄胜出。
 
 - **v2.2.1（2026-08-12）**：全量代码审计修复——炉材次数读档清零/技能垂直打偏/火墙永久存在/音效增益节点泄漏（高）；死亡判定提前（诈尸回春/僵尸剑）、近战与天劫击杀补发 DEATH、大比暴击率 clamp、剑心通明大比守御化、离场销毁 HUD 与舞台（中）；HUD 每帧 DOM 写入缓存、粒子 Graphics 显式销毁、榜单去重、存档版本宽容、灵鉴防重入、battleAccumulator 清零、死代码清理（低）。headless 冒烟 5 局全部天劫 1 柄胜出。
 

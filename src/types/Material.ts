@@ -10,12 +10,13 @@ export type MaterialUnlock =
 /** 投入物效果描述 */
 export type MaterialEffect =
   | { type: 'foodRegenRate'; multiplier: number }
-  | { type: 'spawnFireWalls'; count: number }
   | { type: 'allSpeedBonus'; value: number }
   | { type: 'temperature'; value: 'cold' | 'breeze' }
   | { type: 'mutationBias'; stat: 'speed' | 'toughness'; rateMult: number; sideEffect?: 'speedDown' }
-  | { type: 'thunderstorm' }
-  | { type: 'megaFood'; count: number };
+  | { type: 'megaFood'; count: number }
+  // v2.3.0：布阵/奇遇系——奇遇种子布阵次数 + 手动天雷
+  | { type: 'formationSeed'; count: number }
+  | { type: 'manualLightning' };
 
 /** 投入物 (材料)：以道具次数使用，改变整个炼剑炉的属性 */
 export interface Material {

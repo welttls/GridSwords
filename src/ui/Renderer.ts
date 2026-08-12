@@ -8,6 +8,8 @@ import { eventBus, EVT, type ParticleEvent, type SkillVisual } from '../utils/ev
 const FOOD_COLOR = 0xffd76a;
 const WALL_COLOR = 0xff5a2a;
 const CHAOS_COLOR = 0x1c0f18;
+const LAVA_COLOR = 0xff4a12;      // v2.3.0：熔岩
+const DEEPWATER_COLOR = 0x1a5a9a; // v2.3.0：深水
 const MAX_PARTICLES = 500;
 
 /** 单个粒子 */
@@ -459,6 +461,36 @@ export class WorldRenderer {
       }
     }
 
+    // 剑域地形 (v2.3.0)：熔岩=赤红流浆 / 深水=幽蓝波光 —— 增量遍历地形集合
+    for (const k of world.terrainCells) {
+      const x = k % w;
+      const y = (k / w) | 0;
+      const inside = x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+      if (!inside) continue;
+      const t = world.terrainAt(x, y);
+      if (t === 'lava') {
+        const pulse = 0.75 + 0.25 * Math.sin(tick * 0.16 + x * 2.3 + y * 1.9);
+        g.beginFill(LAVA_COLOR, pulse);
+        g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+        g.endFill();
+        g.beginFill(0xffd76a, 0.5 + 0.3 * Math.sin(tick * 0.22 + x * 3.1 + y * 2.7));
+        g.drawCircle((x + 0.5) * cell, (y + 0.5) * cell, cell * 0.18);
+        g.endFill();
+      } else if (t === 'deepwater') {
+        const pulse = 0.5 + 0.2 * Math.sin(tick * 0.1 + x * 1.3 + y * 1.7);
+        g.beginFill(DEEPWATER_COLOR, pulse);
+        g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+        g.endFill();
+        // 波光纹理
+        g.lineStyle(cell * 0.08, 0x6fb3e8, 0.35 + 0.25 * Math.sin(tick * 0.12 + x + y));
+        g.moveTo(x * cell + 2, (y + 0.4) * cell);
+        g.lineTo((x + 0.55) * cell, (y + 0.4) * cell);
+        g.moveTo(x * cell + 3, (y + 0.75) * cell);
+        g.lineTo((x + 0.6) * cell, (y + 0.75) * cell);
+        g.lineStyle(0);
+      }
+    }
+
     // 庚金之气 (金色光点) —— 增量遍历食物集合
     for (const k of world.foodCells) {
       const x = k % w;
@@ -474,6 +506,26 @@ export class WorldRenderer {
         g.endFill();
         g.beginFill(0xfff6d8, 0.8);
         g.drawCircle(cx, cy, big ? cell * 0.14 : cell * 0.09);
+        g.endFill();
+      }
+    }
+
+    // v2.3.0：奇遇种子——金色脉动灵光（可被熔岩封锁，瞬移可渡）
+    if (world.encounterSeed) {
+      const sx = world.encounterSeed.x;
+      const sy = world.encounterSeed.y;
+      if (sx >= b.minX && sx <= b.maxX && sy >= b.minY && sy <= b.maxY) {
+        const cx = (sx + 0.5) * cell;
+        const cy = (sy + 0.5) * cell;
+        const pulse = 0.55 + 0.45 * Math.sin(tick * 0.18);
+        g.lineStyle(cell * 0.1, 0xffd76a, 0.35 + 0.3 * Math.sin(tick * 0.18));
+        g.drawCircle(cx, cy, cell * 0.52);
+        g.lineStyle(0);
+        g.beginFill(0xfff0c0, pulse);
+        g.drawCircle(cx, cy, cell * 0.4);
+        g.endFill();
+        g.beginFill(0xffd76a, 0.95);
+        g.drawCircle(cx, cy, cell * 0.2);
         g.endFill();
       }
     }
@@ -579,6 +631,31 @@ export class WorldRenderer {
       const flicker = 0.55 + 0.45 * Math.sin(tick * 0.5 + s.state.position.x);
       g.lineStyle(1.4, 0x6fd08a, 0.5 * flicker);
       g.drawRect(s.state.position.x * cell + 1, s.state.position.y * cell + 1, cell - 2, cell - 2);
+      g.lineStyle(0);
+    }
+
+    // v2.3.0：灼烧——烈焰燎身橙红闪边
+    if ((s.state.burningTicks ?? 0) > 0) {
+      const flicker = 0.55 + 0.45 * Math.sin(tick * 0.55 + s.state.position.x + s.state.position.y);
+      g.lineStyle(1.4, 0xff6a2a, 0.55 * flicker);
+      g.drawRect(s.state.position.x * cell + 1, s.state.position.y * cell + 1, cell - 2, cell - 2);
+      g.lineStyle(0);
+      g.beginFill(0xff8a3a, 0.25 * flicker);
+      g.drawCircle(cx, cy, cell * 0.3);
+      g.endFill();
+    }
+    // v2.3.0：定身——青藤缠绕绿圈
+    if ((s.state.rootedTicks ?? 0) > 0) {
+      const pulse = 0.5 + 0.3 * Math.sin(tick * 0.3 + s.state.position.x);
+      g.lineStyle(1.6, 0x4ad68a, pulse);
+      g.drawCircle(cx, cy, cell * 0.62);
+      g.lineStyle(0);
+    }
+    // v2.3.0：减速/深水——水蓝迟滞光环
+    if ((s.state.slowedTicks ?? 0) > 0 || s.world.isDeepWater(s.state.position.x, s.state.position.y)) {
+      const pulse = 0.4 + 0.25 * Math.sin(tick * 0.22 + s.state.position.x + s.state.position.y);
+      g.lineStyle(1.2, 0x5aa9ff, pulse);
+      g.drawCircle(cx, cy, cell * 0.5);
       g.lineStyle(0);
     }
 

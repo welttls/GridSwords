@@ -18,6 +18,60 @@
   --serif: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
 }
 
+/* ============ 音律设置 (v2.3.1) ============ */
+.audio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 20px;
+}
+.audio-panel .audio-hint {
+  color: var(--ink-dim);
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.audio-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.audio-row .audio-label {
+  width: 64px;
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.audio-row .audio-toggle {
+  min-width: 84px;
+  flex-shrink: 0;
+}
+.audio-row .audio-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+.audio-row .audio-pct {
+  width: 42px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+/* 大比界面右上角音律按钮 */
+.battle-screen {
+  position: relative;
+}
+.btn-audio-menu {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  font-size: 13px;
+  padding: 6px 12px;
+  z-index: 5;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -197,6 +251,30 @@ canvas {
   transform: translateY(-4px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 18px color-mix(in srgb, var(--el-color, #d9b26a) 35%, transparent);
 }
+/* v2.3.0：选中态（重种本命弹窗等） */
+.embryo-card.selected {
+  border-color: var(--gold);
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 2px var(--gold), 0 0 22px color-mix(in srgb, var(--el-color, #d9b26a) 45%, transparent);
+}
+/* v2.3.0：紧凑卡片（弹窗内一行五卡） */
+.embryo-card.compact {
+  width: auto;
+  min-width: 104px;
+  padding: 10px 8px 8px;
+}
+.embryo-card.compact canvas {
+  margin: 0 auto;
+}
+.embryo-card.compact .embryo-name {
+  font-size: 14px;
+  letter-spacing: 2px;
+  margin-bottom: 2px;
+}
+.embryo-card.compact .embryo-desc {
+  font-size: 11px;
+  line-height: 1.45;
+}
 .embryo-name {
   font-size: 17px;
   letter-spacing: 4px;
@@ -297,6 +375,82 @@ canvas {
   max-height: 100%;
   aspect-ratio: 1 / 1;
   touch-action: none; /* 触屏：防画布区域滚动/双击缩放手势干扰 */
+}
+
+/* ============ 剑域布阵 (v2.3.0) ============ */
+.canvas-host {
+  position: relative;
+  flex-direction: column;
+  gap: 0;
+}
+.formation-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(10, 14, 22, 0.92);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  /* v2.3.0：单行不换行（内容超宽时横向滚动），避免多行压住画布 */
+  max-width: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  justify-content: flex-start;
+}
+.formation-bar.hidden {
+  display: none;
+}
+.formation-bar .fb-title {
+  color: var(--gold);
+  letter-spacing: 3px;
+  font-size: 12px;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+.formation-bar .fb-brush {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.formation-bar .fb-brush:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.formation-bar .fb-brush.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(217, 178, 106, 0.15);
+  box-shadow: 0 0 10px rgba(217, 178, 106, 0.25);
+}
+.formation-bar .fb-brush.dimmed {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.formation-bar .fb-exit {
+  font-size: 12px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+/* 布阵模式下画布光标 + 画布下移让出工具栏空间（v2.3.0：不再遮挡剑域） */
+.forge-screen.forming .canvas-host {
+  justify-content: flex-start;
+  padding-top: 56px;
+}
+.forge-screen.forming .canvas-host canvas {
+  cursor: crosshair;
 }
 
 .side-panel {
@@ -524,6 +678,10 @@ canvas {
 .reseed-modal .reseed-sub {
   color: var(--ink-dim);
   font-size: 14px;
+}
+.reseed-modal .embryo-grid {
+  gap: 10px;
+  margin: 6px 0;
 }
 .modal-actions {
   display: flex;

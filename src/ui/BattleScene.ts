@@ -5,6 +5,7 @@ import { audio } from '../audio/AudioManager';
 import { drawSwordIcon } from './swordIcon';
 import { ELEMENT_LABEL, ELEMENT_COLOR } from '../simulation/Genetics';
 import { affixName } from '../data/AffixDB';
+import { openAudioPanel } from './AudioPanel'; // v2.3.1：音律设置
 import type { SwordArt } from '../data/SwordArts';
 import type { DuelEvent, DuelTechnique, DuelSideId, DuelFx } from '../simulation/Duel';
 
@@ -67,6 +68,12 @@ export function buildTournament(
   clearNode(host);
   const screen = el('div', 'screen battle-screen');
   screen.appendChild(el('h2', 'menu-title small', '试 剑 台'));
+
+  // v2.3.1：音律设置（右上角小按钮）
+  const audioBtn = el('button', 'btn btn-ghost btn-audio-menu', '🎵 音律') as HTMLButtonElement;
+  audioBtn.title = '音量与静音设置';
+  audioBtn.addEventListener('click', () => openAudioPanel());
+  screen.appendChild(audioBtn);
 
   // v2.0.0：连胜指示
   const streakEl = el('div', 'duel-streak hidden', '');

@@ -51,6 +51,10 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
 
   defender.state.hp -= damage;
   defender.behavior.fightsSurvived++;
+  // v2.3.0：烈焰甲——近身搏杀时剑火燎敌，被击者沾染灼烧
+  if ((attacker.state.flameArmorTicks ?? 0) > 0) {
+    defender.state.burningTicks = Math.max(defender.state.burningTicks ?? 0, 40);
+  }
 
   if (defender.state.hp <= 0) {
     const gained = defender.state.energy * 0.5;
@@ -71,14 +75,16 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
   const hunting = attacker.huntTargetId === defender.state.id;
   // v2.0.0：土系「厚土反震」——厚土反弹来剑：反震按伤害 80% 且不受追击减半（近战克星）；反震磨死攻击者计入土系击破（被动击杀/晋升路径）
   const isEarth = defender.state.genome.element === 'earth';
+  // v2.3.0：金罡体/百炼守「反震」——按伤害比例反弹来剑之威
+  const reflectBonus = (defender.state.reflectPct ?? 0) * damage;
   const recoil = isEarth
     ? Math.max(0.5, damage * 0.8)
     : Math.max(hunting ? 0.25 : 0.5, damage * 0.3 * (hunting ? 0.5 : 1));
-  attacker.state.hp -= recoil;
+  attacker.state.hp -= recoil + reflectBonus;
   // 土系反震致死：反震磨死攻击者 → 土系计击破（与剑心晋升联动）
   if (isEarth && attacker.state.hp <= 0 && defender.state.hp > 0) {
     defender.behavior.killCount++;
   }
   attacker.state.energy -= damage * 0.2; // 出招亦耗神
-  return { damage, defenderDied: false, recoil, attackerDied: attacker.state.hp <= 0 };
+  return { damage, defenderDied: false, recoil: recoil + reflectBonus, attackerDied: attacker.state.hp <= 0 };
 }

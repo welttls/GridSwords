@@ -17,7 +17,6 @@ export interface WorldModifiers {
   speedBonus: number;         // 全体速度加成
   mutationBias: { stat: 'speed' | 'toughness'; rateMult: number; sideEffect?: 'speedDown' } | null;
   temperature: 'normal' | 'cold' | 'breeze';
-  thunderstorm: boolean;      // 雷劫
   megaFood: boolean;          // 陨星铁母
   aggressionBonus: number;    // 攻击欲望加成
 }
