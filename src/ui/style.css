@@ -2114,6 +2114,171 @@ canvas {
   height: 14px;
   cursor: pointer;
 }
+
+/* ============ 剑谱 (v2.5.0)：剑成叙事 ============ */
+.appraisal-tale {
+  margin-top: 18px;
+  padding: 16px 18px;
+  background: linear-gradient(160deg, rgba(20, 26, 38, 0.95), rgba(14, 17, 26, 0.95));
+  border: 1px solid rgba(217, 178, 106, 0.18);
+  border-radius: 8px;
+  color: var(--ink);
+}
+.tale-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.tale-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 3px;
+}
+.tale-hero {
+  font-size: 13px;
+  color: var(--ink-dim);
+  letter-spacing: 1px;
+}
+.tale-prologue {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink);
+  border-left: 2px solid rgba(217, 178, 106, 0.4);
+  padding-left: 10px;
+}
+.tale-section-label {
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: var(--gold-dim);
+  margin: 10px 0 6px;
+}
+.tale-episodes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.tale-ep {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.tale-time {
+  flex: 0 0 auto;
+  color: var(--gold-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.tale-text {
+  color: var(--ink);
+}
+.tale-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(217, 178, 106, 0.07);
+  border: 1px solid rgba(217, 178, 106, 0.16);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--ink);
+}
+.tale-chronicle {
+  margin-top: 10px;
+}
+.tale-chronicle summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--gold-dim);
+  letter-spacing: 1px;
+  user-select: none;
+}
+.tale-chronicle-list {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.tale-chronicle-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+.tale-chronicle-line .tale-time {
+  font-size: 11px;
+}
+.tale-modal-body {
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.tale-modal-body .appraisal-tale {
+  margin-top: 0;
+}
+.rank-item.has-tale {
+  cursor: pointer;
+}
+.rank-item.has-tale:hover {
+  border-color: rgba(217, 178, 106, 0.45);
+}
+.rank-item.has-tale::after {
+  content: '📜';
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+
+/* ============ 成就面板 (v2.5.0) ============ */
+.ach-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.ach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+}
+.ach-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.2);
+  opacity: 0.55;
+}
+.ach-card.unlocked {
+  border-color: rgba(217, 178, 106, 0.45);
+  background: rgba(217, 178, 106, 0.08);
+  opacity: 1;
+}
+.ach-name {
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.ach-card.unlocked .ach-name {
+  color: var(--gold);
+}
+.ach-desc {
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.6;
+}
 .material-card.selected {
   border-color: var(--gold);
   box-shadow: 0 0 0 1px var(--gold) inset;

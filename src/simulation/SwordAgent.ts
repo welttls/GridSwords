@@ -28,6 +28,7 @@ import {
 } from '../constants';
 import { maxHpOf, maxEnergyOf } from './swordStats';
 import { clamp, randomInt, shuffle } from '../utils/mathUtils';
+import type { DeathCause } from './Chronicle';
 
 /** 8 方向：上下左右 + 四对角 */
 const DIRS = [
@@ -51,6 +52,10 @@ export class SwordAgent {
   pendingMindPick: string[] | null = null;
   /** v2.0.0：残血追击锁定——攻击未击杀时锁定目标，持续追杀至击杀/逃离 (运行时字段) */
   huntTargetId: string | null = null;
+  /** v2.5.0：本 tick 内反震来源（死后归因 counter 用，运行时字段，不序列化） */
+  private lastHitBy: string | undefined;
+  /** v2.5.0：濒死逃生追踪——跌破 20% 待报，回血过 60% 记「nadir」事件（剑谱素材） */
+  private nadirPending = false;
 
   counterReady = false;
   /** 本 tick 是否有所行动 (移动/采气/碰撞)，影响精元消耗 */
@@ -400,6 +405,8 @@ export class SwordAgent {
         if (result.defenderDied) {
           this.huntTargetId = null; // 目标已死，解除追击
           this.behavior.killCount++;
+          // v2.5.0：剑域纪事——近战击杀（含首杀）
+          this.world.recordKill(this.state.id, defender.state.id, 'melee');
           // 寄灵：击败者被寄灵化为己方剑子 (罕见能力)
           if (this.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
             const converted = this.world.spawnParasite(this, x, y);
@@ -414,11 +421,16 @@ export class SwordAgent {
           }
           // 击杀后立即移除防御者，防止其残留为「僵尸剑意」再行动一轮；
           // 先清格再推进，攻方方能占据目标格 (占用校验会拦截旧顺序)
-          defender.die(); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
+          defender.die('melee', this.state.id); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
           this.world.moveSword(this, x, y);
           this.visitCurrent();
           return true;
         } else {
+          // v2.5.0：反震致死归因——攻方将死（下个 isDead 检查走 die()，死因=反震、凶手=守方）
+          if (result.attackerDied) {
+            this.lastHitBy = defender.state.id;
+            this.world.recordKill(defender.state.id, this.state.id, 'counter');
+          }
           // v2.0.0：残血追击——目标未死则锁定，趁胜追杀至击杀/逃离
           if (this.state.hp / maxHpOf(this.state) > 0.35) this.huntTargetId = defender.state.id;
           this.behavior.waitCount++; // 反震退回原位
@@ -525,9 +537,17 @@ export class SwordAgent {
       this.state.poisonTicks = (this.state.poisonTicks ?? 0) - 1;
     }
 
-    // v2.3.0：灼烧（焚天爆命中/烈焰甲附火）——剑体被烈火燎灼
     if ((this.state.burningTicks ?? 0) > 0) {
       this.state.hp -= BURN_DMG_PER_TICK;
+    }
+
+    // v2.5.0：濒死逃生追踪——跌破 20% 待报，回血过 60% 记「nadir」（剑谱素材：残血逆袭）
+    const hpRatioNow = this.state.hp / maxHpOf(this.state);
+    if (!this.nadirPending && hpRatioNow < 0.2) {
+      this.nadirPending = true;
+    } else if (this.nadirPending && hpRatioNow >= 0.6) {
+      this.nadirPending = false;
+      this.world.chronicle.record('nadir', { actorId: this.state.id, data: { hpRatio: hpRatioNow } });
     }
 
     if (this.state.energy <= 0 || this.state.hp <= 0) {
@@ -561,9 +581,30 @@ export class SwordAgent {
     }
   }
 
-  die(): void {
+  /** v2.5.0：剑意陨落——记录死因/凶手/血亲标记（剑谱与成就数据源） */
+  die(cause?: DeathCause, killerId?: string): void {
     if (!this.world.swords.has(this.state.id)) return;
     this.state.hp = 0; // v2.3.0：陨落后 hp 归零（熔岩焚身路径先置 0；统一在此兜底，防「诈尸」再动）
+    // v2.5.0：死因自推断（未显式传入时按当前状态判定）
+    let finalCause = cause;
+    if (!finalCause) {
+      if (this.state.energy <= 0) finalCause = 'starve';
+      else if ((this.state.poisonTicks ?? 0) > 0) finalCause = 'poison';
+      else if ((this.state.burningTicks ?? 0) > 0) finalCause = 'burn';
+      else finalCause = this.lastHitBy ? 'counter' : 'wound';
+    }
+    const finalKiller = killerId ?? this.lastHitBy;
+    // v2.5.0：剑域纪事——陨落事件（死因/凶手/血亲标记；天劫期血亲亦相争，isKin 仍可查）
+    this.world.chronicle.record('death', {
+      actorId: this.state.id,
+      targetId: finalKiller,
+      data: {
+        cause: finalCause,
+        element: this.state.genome.element,
+        kin: finalKiller ? this.world.isKin({ state: { id: finalKiller } }, { state: { id: this.state.id } }) : undefined,
+      },
+    });
+    this.lastHitBy = undefined;
     eventBus.emit(EVT.DEATH, {
       x: this.state.position.x,
       y: this.state.position.y,
@@ -608,6 +649,11 @@ export class SwordAgent {
   /** 剑心晋境通用：扩容/上限+50/回满/绝技/日志（v2.3.0 由杀伐晋升与奇遇种子共用） */
   private applyMindPromotion(next: number, source: 'slaughter' | 'fortune'): void {
     this.state.mindRealm = next;
+    // v2.5.0：剑域纪事——剑心晋境
+    this.world.chronicle.record('promotion', {
+      actorId: this.state.id,
+      data: { realm: next, promoVia: source },
+    });
     this.brain.expandHidden(MIND_REALMS[next].hidden);
     // 同步序列化快照，防存档读到扩容前的旧长度
     this.state.brainWeights = this.brain.getWeights();
@@ -624,6 +670,8 @@ export class SwordAgent {
     const skills = (this.state.mindSkillIds ??= []);
     if (next === MIND_REALMS.length - 1) {
       if (!skills.includes(MIND_SKILL_ULT.id)) skills.push(MIND_SKILL_ULT.id);
+      // v2.5.0：剑域纪事——悟得终极绝技
+      this.world.chronicle.record('mindSkill', { actorId: this.state.id, data: { skillId: MIND_SKILL_ULT.id } });
       eventBus.emit(EVT.LOG, {
         text:
           source === 'fortune'
@@ -647,6 +695,8 @@ export class SwordAgent {
         } else {
           const s = candidates[randomInt(0, candidates.length - 1)];
           skills.push(s.id);
+          // v2.5.0：剑域纪事——外来剑意悟得绝技
+          this.world.chronicle.record('mindSkill', { actorId: this.state.id, data: { skillId: s.id } });
           eventBus.emit(EVT.LOG, {
             text: `第${this.world.config.currentDay}日：一道剑意灵识大开，剑心晋入「${name}」，悟得绝技「${s.name}」！`,
             focusId: this.state.id,
@@ -672,6 +722,8 @@ export class SwordAgent {
     if (s && !skills.includes(id)) skills.push(id);
     this.pendingMindPick = null;
     if (s) {
+      // v2.5.0：剑域纪事——本命血脉择定绝技
+      this.world.chronicle.record('mindSkill', { actorId: this.state.id, data: { skillId: id } });
       eventBus.emit(EVT.LOG, {
         text: `第${this.world.config.currentDay}日：本命剑意剑心晋入「${MIND_REALMS[this.state.mindRealm ?? 0].name}」，悟得绝技「${s.name}」！`,
         focusId: this.state.id,
@@ -688,6 +740,8 @@ export class SwordAgent {
     const add = (id: string, rare: boolean) => {
       if (g.affixes.includes(id)) return;
       g.affixes.push(id);
+      // v2.5.0：剑域纪事——悟得词条
+      this.world.chronicle.record('affix', { actorId: this.state.id, data: { affix: id } });
       eventBus.emit(EVT.MIND, null); // 音频：悟得词条「顿悟」
       eventBus.emit(EVT.LOG, {
         text: `第${this.world.config.currentDay}日：一道剑意悟得「${affixName(id)}」！`,

@@ -17,7 +17,8 @@ export const DEEPWATER_COST_MULT = 1.5;
 
 // ===== 奇遇种子 (v2.3.0) =====
 /** 每日子时奇遇种子随机出现的概率（玩家也可用「奇遇灵种」炉材主动放置） */
-export const ENCOUNTER_SEED_DAILY_CHANCE = 0.15;
+/** v2.3.0 奇遇种子每日显现概率（v2.5.1：0.15 → 0.25——实测 15% 下约 1/3 局一颗奇遇都不出现，玩家感知为「奇遇都是 0」） */
+export const ENCOUNTER_SEED_DAILY_CHANCE = 0.25;
 
 // ===== 技能控制/灼烧 (v2.3.0) =====
 /** 灼烧：每 tick 剑体伤害（焚天爆命中/烈焰甲附火） */

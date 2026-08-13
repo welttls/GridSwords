@@ -498,11 +498,11 @@ function applyCC(agent: SwordAgent, world: World, target: SwordAgent, s: SwordSk
   if (s.rootTicks) st.rootedTicks = Math.max(st.rootedTicks ?? 0, s.rootTicks);
   if (s.slowTicks) st.slowedTicks = Math.max(st.slowedTicks ?? 0, s.slowTicks);
   if (s.burnTicks) st.burningTicks = Math.max(st.burningTicks ?? 0, s.burnTicks);
-  if (s.knockback) knockbackSword(world, target, dir, s.knockback);
+  if (s.knockback) knockbackSword(world, target, dir, s.knockback, agent.state.id);
 }
 
 /** 击退：沿方向推目标至多 N 格；被墙/剑意阻挡则止；击入熔岩 → 一步即死（v2.3.0） */
-function knockbackSword(world: World, target: SwordAgent, dir: { dx: number; dy: number }, cells: number): void {
+function knockbackSword(world: World, target: SwordAgent, dir: { dx: number; dy: number }, cells: number, attackerId?: string): void {
   const dx = dir.dx || 0;
   const dy = dir.dy || 0;
   if (dx === 0 && dy === 0) return;
@@ -513,7 +513,7 @@ function knockbackSword(world: World, target: SwordAgent, dir: { dx: number; dy:
     if (!world.inBounds(nx, ny) || (world.isWall(nx, ny) && !world.isLava(nx, ny)) || world.swordIdAt(nx, ny)) break;
     world.moveSword(target, nx, ny);
     if (world.isLava(nx, ny)) {
-      target.die(); // 击退入熔岩：剑体崩解
+      target.die('lava', attackerId); // 击退入熔岩：剑体崩解（v2.5.0 记死因/凶手）
       break;
     }
   }
@@ -534,6 +534,8 @@ function damageSword(attacker: SwordAgent, other: SwordAgent, dmg: number): void
       const corpseValue = Math.max(4, other.state.energy * 0.4);
       attacker.state.energy += other.state.energy * 0.5; // 以战养战，夺敌灵机
       attacker.state.hp = Math.min(maxHpOf(attacker.state), attacker.state.hp + Math.round(maxHpOf(attacker.state) * KILL_HEAL_PCT)); // v2.1.0 胜者回气 15% 上限
+      // v2.5.0：剑域纪事——技能击杀（含首杀）
+      attacker.world.recordKill(attacker.state.id, other.state.id, 'skill');
       // 寄灵：化敌为剑子（罕有能力，同近战路径）
       if (attacker.state.genome.affixes.includes('parasite') && Math.random() < 0.5) {
         const converted = attacker.world.spawnParasite(attacker, x, y);
@@ -542,7 +544,7 @@ function damageSword(attacker: SwordAgent, other: SwordAgent, dmg: number): void
         attacker.world.spawnCorpseFood(x, y, corpseValue);
       }
     }
-    other.die();
+    other.die('skill', attacker?.state.id);
   }
 }
 

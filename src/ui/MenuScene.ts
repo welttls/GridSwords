@@ -26,6 +26,7 @@ export function buildMenu(host: HTMLElement, game: Game): void {
     mk('▶ 继续炼剑', () => game.continueRun(), 'btn-ghost');
   }
   mk('万剑榜', () => game.showRanking(), 'btn-ghost');
+  mk('成就', () => game.showAchievements(), 'btn-ghost'); // v2.5.0
   mk('图鉴', () => game.showCodex(), 'btn-ghost');
   mk('音律', () => openAudioPanel(), 'btn-ghost'); // v2.3.1：音量设置
   screen.appendChild(buttons);

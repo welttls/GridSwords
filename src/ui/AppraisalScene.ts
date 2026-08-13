@@ -1,10 +1,11 @@
 import type { Game } from '../Game';
-import type { Genome, Element } from '../types';
+import type { Genome, Element, SwordTaleData } from '../types';
 import type { SwordAgent } from '../simulation/SwordAgent';
 import { el, clearNode } from '../utils/dom';
 import { drawSwordIcon } from './swordIcon';
 import { toast } from './modals';
 import { ELEMENT_LABEL, ELEMENT_COLOR } from '../simulation/Genetics';
+import { renderTaleContent } from './taleView';
 
 export interface EvoNode {
   id: string;
@@ -24,6 +25,8 @@ export interface AppraisalData {
   tree: EvoNode[];
   populationHistory: number[];
   totalTicks: number;
+  /** v2.5.0：剑谱（剑成叙事；刷新续玩由 pendingAppraisal.tale 恢复） */
+  tale?: SwordTaleData | null;
 }
 
 /** 鉴定页属性/评分/特质的悬浮说明 */
@@ -147,6 +150,9 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
   layout.append(left, right);
   screen.appendChild(layout);
 
+  // —— 剑谱（v2.5.0）：出身 → 重大纪事 → 总结评语 → 完整纪事（可折叠）——
+  screen.appendChild(buildTaleSection(data, nameInput));
+
   const footer = el('div', 'appraisal-footer');
   const submit = el('button', 'btn btn-gold', '命名 · 赴宗门大比');
   submit.addEventListener('click', () => {
@@ -162,6 +168,25 @@ export function buildAppraisal(host: HTMLElement, game: Game, data: AppraisalDat
   screen.appendChild(footer);
 
   host.appendChild(screen);
+}
+
+/** v2.5.0：剑谱区块——剑成叙事（命名输入实时联动剑名） */
+function buildTaleSection(data: AppraisalData, nameInput: HTMLInputElement): HTMLElement {
+  const wrap = el('div', 'appraisal-tale');
+  const tale = data.tale;
+  if (!tale) {
+    wrap.appendChild(el('p', 'empty', '此局未能谱成一卷剑谱。'));
+    return wrap;
+  }
+  const { el: content, heroEl } = renderTaleContent(tale);
+  wrap.appendChild(content);
+  // 命名实时联动剑名
+  const updateHero = () => {
+    const n = (nameInput.value || '').trim() || '无名剑';
+    heroEl.textContent = `${n} · ${ELEMENT_LABEL[tale.element]}行`;
+  };
+  nameInput.addEventListener('input', updateHero);
+  return wrap;
 }
 
 function statLine(label: string, value: number | string, tip?: string): HTMLElement {

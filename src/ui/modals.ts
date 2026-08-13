@@ -1,4 +1,6 @@
 import { el } from '../utils/dom';
+import type { SwordTaleData } from '../types';
+import { renderTaleContent } from './taleView';
 
 /** 打开一个模态框，返回 overlay 元素 */
 export function openModal(
@@ -41,4 +43,12 @@ export function toast(msg: string, ms = 2600, onClick?: () => void): void {
   }
   document.getElementById('app')!.appendChild(t);
   window.setTimeout(() => t.remove(), ms);
+}
+
+/** v2.5.0：名剑回看——弹窗重读剑谱 */
+export function openTaleModal(tale: SwordTaleData): void {
+  const body = el('div', 'tale-modal-body');
+  const { el: content } = renderTaleContent(tale);
+  body.appendChild(content);
+  openModal(`剑谱 · ${tale.heroName}`, body, { width: 560 });
 }

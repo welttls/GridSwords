@@ -32,7 +32,7 @@ export const RECIPES: Material[] = [
   {
     id: 'encounter_seed',
     name: '奇遇灵种',
-    unlock: 'rankTop10',
+    unlock: 'start', // v2.5.1：初始拥有直接解锁（布阵种奇遇是核心乐趣，此前锁万剑榜前10导致玩家「放不了奇遇，都是0」）
     description: '灵种入域，机缘自现。获得 1 次「奇遇种子」布阵之数——点「布阵」在剑域自选位置种下，被剑意取得者剑心境界 +1；无需封锁，亦可自行以熔岩/深水设下试炼。',
     effect: { type: 'formationSeed', count: 1 },
     count: 1,

@@ -77,4 +77,24 @@ export interface RankedSword {
   date: string;
   dayReached: number;
   wins: number;
+  /** v2.5.0：剑谱（剑成时生成并随名剑保存，可回看） */
+  tale?: SwordTaleData;
+}
+
+/** v2.5.0：剑谱——一局的关键纪事行（出身/重大纪事/总结/完整纪事） */
+export interface TaleLine {
+  day: number;
+  shichen: number;
+  text: string;
+}
+
+export interface SwordTaleData {
+  title: string;
+  heroName: string;
+  element: Element;
+  prologue: string;
+  episodes: TaleLine[];
+  summary: string;
+  /** 完整纪事（全部事件流水，折叠区展示） */
+  chronicle: TaleLine[];
 }

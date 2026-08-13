@@ -1,6 +1,6 @@
 import type { Game } from '../Game';
 import { el } from '../utils/dom';
-import { openModal } from './modals';
+import { openModal, openTaleModal } from './modals';
 import { drawSwordIcon } from './swordIcon';
 import { recipesSorted, unlockLabel } from '../data/RecipeDB';
 
@@ -39,6 +39,11 @@ export function openCodex(game: Game): void {
         el('span', 'rank-tags', s.tags.map((t) => `「${t}」`).join(' ')),
         el('span', 'rank-score', `${s.score}`),
       );
+      // v2.5.0：点击条目重读剑谱
+      if (s.tale) {
+        item.classList.add('clickable', 'has-tale');
+        item.addEventListener('click', () => openTaleModal(s.tale!));
+      }
       hist.appendChild(item);
     }
     body.appendChild(hist);

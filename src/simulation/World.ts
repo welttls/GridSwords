@@ -26,6 +26,7 @@ import {
 import { clamp, shuffle, uid, randomInt } from '../utils/mathUtils';
 import { maxHpOf, maxEnergyOf } from './swordStats';
 import { eventBus, EVT } from '../utils/eventBus';
+import { Chronicle, type DeathCause } from './Chronicle';
 
 export interface LineageNode {
   parentId: string;
@@ -46,6 +47,8 @@ export class World {
 
   tickCounter = 0;
   maxGeneration = 1;
+  /** v2.5.0：剑域纪事——结构化事件采集层（剑谱叙事/成就共用；随 World 生灭，不持久化） */
+  chronicle: Chronicle;
   /** 血统溯源 (id -> 父信息) */
   lineage = new Map<string, LineageNode>();
   rootId: string | null = null;
@@ -100,6 +103,7 @@ export class World {
       megaFood: false,
       aggressionBonus: 0,
     };
+    this.chronicle = new Chronicle(() => this.tickCounter);
     const { width, height } = this.config;
     this.grid = Array.from({ length: height }, () => new Array<string | null>(width).fill(null));
     this.food = Array.from({ length: height }, () => new Array<number>(width).fill(0));
@@ -208,6 +212,10 @@ export class World {
       text: `第${this.config.currentDay}日：一道奇遇灵光于剑域(${px},${py})显现，剑意趋之若鹜！`,
       important: true,
     });
+    // v2.5.1：剑域纪事——奇遇显现（world=每日随机 / player=布阵种下；无归属剑，剑谱完整纪事收录）
+    this.chronicle.record('encounter', {
+      data: { via: x !== undefined && y !== undefined ? 'player' : 'world' },
+    });
     return true;
   }
 
@@ -216,6 +224,8 @@ export class World {
     if (!this.encounterSeed) return;
     this.encounterSeed = null;
     agent.grantMindRealm();
+    // v2.5.0：剑域纪事——奇遇机缘
+    this.chronicle.record('encounter', { actorId: agent.state.id });
   }
 
   foodAt(x: number, y: number): number {
@@ -262,7 +272,33 @@ export class World {
   kinProtected(): boolean {
     return !this.config.isShrinking;
   }
-
+  /**
+   * v2.5.0：剑域纪事——记录一次击杀（近战/技能/反震/天劫挤斗通用）。
+   * 顺带补该剑的「首杀」事件（生涯第一杀）；血亲相残标记（天劫期）一并记录。
+   */
+  recordKill(
+    killerId: string,
+    victimId: string,
+    cause: DeathCause,
+    extra: { source?: 'manual' | 'tribulation' } = {},
+  ): void {
+    const victim = this.swords.get(victimId);
+    const kin = victim ? this.isKin({ state: { id: killerId } }, victim) : false;
+    const element = victim ? victim.state.genome.element : undefined;
+    const killsByKiller = this.chronicle.countBy('kill', killerId);
+    this.chronicle.record('kill', {
+      actorId: killerId,
+      targetId: victimId,
+      data: { cause, kin, element, ...extra },
+    });
+    if (killsByKiller === 0) {
+      this.chronicle.record('firstKill', {
+        actorId: killerId,
+        targetId: victimId,
+        data: { cause, kin, element, ...extra },
+      });
+    }
+  }
   private cellKey(x: number, y: number): number {
     return y * this.config.width + x;
   }
@@ -381,6 +417,17 @@ export class World {
       element: genome.element,
     });
     if (child.state.generation > this.maxGeneration) this.maxGeneration = child.state.generation;
+    // v2.5.0：剑域纪事——分化剑子诞生
+    this.chronicle.record('birth', {
+      actorId: child.state.id,
+      data: { via: 'split', generation: child.state.generation, origin: child.state.origin, element: genome.element, parentId: parent.state.id },
+    });
+    // v2.5.1：剑域纪事——母剑分化（母剑视角，剑谱重大纪事用）
+    this.chronicle.record('split', {
+      actorId: parent.state.id,
+      targetId: child.state.id,
+      data: { via: 'split', generation: child.state.generation, element: genome.element },
+    });
     return child;
   }
 
@@ -422,6 +469,11 @@ export class World {
         const agent = new SwordAgent(st, brain, this);
         this.addSword(agent, x, y);
         this.lineage.set(st.id, { parentId: '', day: this.config.currentDay, generation: 1, element: genome.element });
+        // v2.5.0：剑域纪事——剑潮游离剑意诞生
+        this.chronicle.record('birth', {
+          actorId: st.id,
+          data: { via: 'tide', generation: 1, origin: 'wild', element: genome.element, parentId: '' },
+        });
         return true;
       }
     }
@@ -519,6 +571,17 @@ export class World {
       focusId: st.id,
       important: true,
     });
+    // v2.5.0：剑域纪事——寄灵剑子诞生
+    this.chronicle.record('birth', {
+      actorId: st.id,
+      data: { via: 'parasite', generation: st.generation, origin: st.origin, element: st.genome.element, parentId: attacker.state.id },
+    });
+    // v2.5.1：剑域纪事——寄灵化敌为子（寄主视角，剑谱重大纪事用）
+    this.chronicle.record('split', {
+      actorId: attacker.state.id,
+      targetId: st.id,
+      data: { via: 'parasite', generation: st.generation, element: st.genome.element },
+    });
     return true;
   }
 
@@ -574,27 +637,31 @@ export class World {
     }
   }
 
-  /** v2.3.0 手动天雷 / v2.4.0 范围雷暴：在指定格降下雷霆——闪电劈落，半径 2 内剑意同受天雷（与天劫同伤）；始终降雷展示 */
-  strikeLightning(x: number, y: number): boolean {
-    if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return false;
+  /** v2.3.0 手动天雷 / v2.4.0 范围雷暴：在指定格降下雷霆——闪电劈落，半径 2 内剑意同受天雷（与天劫同伤）；始终降雷展示。返回本次雷暴击杀数。 */
+  strikeLightning(x: number, y: number): number {
+    if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height) return 0;
     // 落点剑意元素（决定特效主色；空地取 metal）
     const hit = this.swords.get(this.grid[y][x] ?? '');
     const element = hit?.state.genome.element ?? 'metal';
     // 先落雷特效/音效（闪电劈下 + 范围雷暴），再结算伤害（击杀另有死亡粒子）
     eventBus.emit(EVT.THUNDER, { x, y, element });
+    let killed = 0;
     for (const s of this.swords.values()) {
       const d = Math.abs(s.state.position.x - x) + Math.abs(s.state.position.y - y);
       if (d > 2) continue; // v2.4.0：范围雷暴——半径 2（曼哈顿）内剑意同受天雷
       s.state.hp -= TRIBULATION_LIGHTNING_DMG;
       s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
       if (s.state.hp <= 0 || s.state.energy <= 0) {
-        s.die();
+        s.die('thunder');
+        killed++;
       } else {
         // 雷劫余生：历天雷而仍存续 → 标记个体经历（鉴定标签）
         s.state.survivedThunder = true;
+        // v2.5.0：剑域纪事——雷劫余生
+        this.chronicle.record('thunderSurvive', { actorId: s.state.id, data: { source: 'manual' } });
       }
     }
-    return true;
+    return killed;
   }
 
   /** 陨星铁母：生成超高能量食物 */
@@ -682,12 +749,16 @@ export class World {
             clashed++;
             // v2.2.1：反震致死（厚土反震等）——困兽当场陨落，不再移走/留场成「僵尸剑」
             if (result.attackerDied) {
-              s.die();
+              // v2.5.0：天劫挤斗——攻方反震而亡，击杀归守方（天劫期血亲亦相争，记血亲标记）
+              this.recordKill(occupant.state.id, s.state.id, 'counter', { source: 'tribulation' });
+              s.die('counter', occupant.state.id);
               perished++;
               moved = true; // 防止 !moved 分支再把尸体挤走
             } else if (result.defenderDied) {
               s.behavior.killCount++;
-              occupant.die(); // v2.2.1：改走 die() 发 EVT.DEATH（死亡粒子/音效）
+              // v2.5.0：天劫挤斗——近战击杀（天劫期血亲亦相争，记血亲标记）
+              this.recordKill(s.state.id, occupant.state.id, 'melee', { source: 'tribulation' });
+              occupant.die('melee', s.state.id); // v2.2.1：改走 die() 发 EVT.DEATH（死亡粒子/音效）
               if (this.grid[p.y][p.x] === s.state.id) this.grid[p.y][p.x] = null;
               this.grid[ty][tx] = s.state.id;
               s.state.position = { x: tx, y: ty };
@@ -717,6 +788,8 @@ export class World {
         eventBus.emit(EVT.LOG, `天劫收束，壁垒向内收缩，${squeezed}道剑意被逼向中心（相斗${clashed}场），${perished}道无处立足化作混沌尘埃……`);
       }
     }
+    // v2.5.0：剑域纪事——天劫收缩（圈数）
+    this.chronicle.record('tribulation', { data: { ring: Math.floor((this.config.width - this.shrunkSpanX) / 2) } });
     // 全领域落雷（随收缩阶段执行——特效展示 + 压力）；道数受场地面积钳制：区域越小越稀疏
     const lb = this.bounds;
     const rings = Math.floor((this.config.width - this.shrunkSpanX) / 2);
@@ -735,7 +808,7 @@ export class World {
       s.state.hp -= TRIBULATION_LIGHTNING_DMG;
       s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
       if (s.state.hp <= 0 || s.state.energy <= 0) {
-        s.die(); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
+        s.die('thunder'); // v2.2.1：走 die() 发 EVT.DEATH（死亡粒子/音效）
       } else {
         eventBus.emit(EVT.THUNDER, { x, y, element: s.state.genome.element });
       }

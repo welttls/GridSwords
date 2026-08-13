@@ -1,4 +1,4 @@
-import type { Element, Genome, RankedSword, SwordState } from '../types';
+import type { Element, Genome, RankedSword, SwordState, SwordTaleData } from '../types';
 import type { World } from '../simulation/World'; // v2.2.1：type-only——GameSave.eco 与 exportEcoState 类型联动（含 wallExpiry）
 import { SAVE_KEY } from '../constants';
 
@@ -19,6 +19,26 @@ export interface PendingAppraisal {
   }[];
   populationHistory: number[];
   totalTicks: number;
+  /** v2.5.0：剑谱（刷新续玩恢复剑成鉴定时重显；含完整纪事） */
+  tale?: SwordTaleData | null;
+}
+
+/** 累计统计（成就判定用，v2.5.0） */
+export interface GameStats {
+  /** 累计完成局数（含败局） */
+  totalRuns: number;
+  /** 累计涌现次数 */
+  totalEmergences: number;
+  /** 累计登顶万剑榜次数 */
+  totalFirstRanks: number;
+  /** 累计击杀 */
+  totalKills: number;
+  /** 累计手动天雷击杀 */
+  totalLightningKills: number;
+}
+
+export function defaultStats(): GameStats {
+  return { totalRuns: 0, totalEmergences: 0, totalFirstRanks: 0, totalKills: 0, totalLightningKills: 0 };
 }
 
 /** 存档结构 (JSON 序列化，无循环引用) */
@@ -32,6 +52,10 @@ export interface GameSave {
   hasBeatenFirstOpponent: boolean;
   /** 万剑谱 (v2.0.0)：本命剑收藏，最多 5 柄可替换；旧剑可作大比对手 */
   swordCodex: RankedSword[];
+  /** v2.5.0：已解锁成就 id 列表 */
+  achievements: string[];
+  /** v2.5.0：累计统计（成就判定） */
+  stats: GameStats;
   // —— 当前局 (支持中断续玩) ——
   activeRun: boolean;
   embryoGenome: Genome | null;
@@ -61,13 +85,15 @@ export interface GameSave {
 export function defaultSave(): GameSave {
   return {
     version: 1,
-    // v2.4.0：雷劫液改初始拥有（手动天雷直接解锁）
-    unlockedMaterialIds: ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion'],
+    // v2.4.0：雷劫液改初始拥有（手动天雷直接解锁）；v2.5.1：奇遇灵种改初始拥有（布阵种奇遇）
+    unlockedMaterialIds: ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion', 'encounter_seed'],
     history: [],
     bestScore: 0,
     finishedGames: 0,
     hasBeatenFirstOpponent: false,
     swordCodex: [],
+    achievements: [],
+    stats: defaultStats(),
     activeRun: false,
     embryoGenome: null,
     day: 1,
@@ -97,13 +123,17 @@ export class SaveManager {
       // v2.2.1：未知高版本存档不整档静默丢弃——保留数据按当前结构兼容读取（缺失字段由 defaultSave 兜底）
       if (parsed.version > 1) console.warn('[炼剑] 检测到更高版本存档 (v' + parsed.version + ')，按当前版本兼容读取，部分新字段可能缺失。');
       const save = { ...defaultSave(), ...parsed };
-      // v2.4.0：初始炉材迁移——起始解锁材料缺则补（雷劫液改初始拥有，兼容旧档；否则老玩家用不了）
-      const START_UNLOCKED = ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion'];
+      // v2.4.0：初始炉材迁移——起始解锁材料缺则补（雷劫液改初始拥有，兼容旧档；否则老玩家用不了）；v2.5.1 补奇遇灵种
+      const START_UNLOCKED = ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion', 'encounter_seed'];
       for (const id of START_UNLOCKED) {
         if (!save.unlockedMaterialIds.includes(id)) save.unlockedMaterialIds.push(id);
       }
       // v2.0.0：万剑谱兜底（旧档无此字段）
       if (!Array.isArray(save.swordCodex)) save.swordCodex = [];
+      // v2.5.0：成就/统计兜底（旧档无此字段）
+      if (!Array.isArray(save.achievements)) save.achievements = [];
+      if (!save.stats || typeof save.stats !== 'object') save.stats = defaultStats();
+      else save.stats = { ...defaultStats(), ...save.stats };
       // P1-6：字段级迁移 —— 旧档 swords[].origin 缺失时按 rootId 补默认
       if (Array.isArray(save.swords)) {
         for (const s of save.swords) {

@@ -34,7 +34,7 @@ interface FloatText {
 
 /** 技能特效 (持续帧动画) */
 interface Effect {
-  kind: 'proj' | 'ring' | 'beam' | 'bolt';
+  kind: 'proj' | 'ring' | 'beam' | 'bolt' | 'rain';
   x: number;
   y: number;
   dx: number;
@@ -46,6 +46,9 @@ interface Effect {
   radius: number;
   /** v2.4.0：闪电锯齿水平偏移序列（bolt 用，创建时预生成避免每帧抖动） */
   jag?: number[];
+  /** v2.5.1：剑雨/光雨——区域内竖直下落（dir=1）或上腾（dir=-1）的光条（剑心绝技用） */
+  rain?: { ox: number; phase: number; len: number }[];
+  dir?: 1 | -1;
 }
 
 /**
@@ -204,6 +207,19 @@ export class WorldRenderer {
   /** v2.4.0：落雷特效——闪电自天穹劈下（锯齿竖线）+ 范围雷暴（增长风暴环）+ 爆闪粒子（手动天雷/天劫共用） */
   private onThunder(e: ParticleEvent): void {
     // 1. 闪电劈下：自画布顶部到落点的锯齿闪电（预生成偏移，防每帧抖动）
+    this.boltFx(e.x, e.y, 0xcfe4ff, 0.32);
+    // 2. 范围雷暴：增长风暴环
+    this.ringsFx(e.x, e.y, [
+      { r: 3.4, color: 0x9ac8ff, life: 0.6 },
+      { r: 2.2, color: 0xffffff, life: 0.32 },
+    ]);
+    // 3. 爆闪粒子
+    this.spawnBurst(e.x, e.y, 0x9ac8ff, 14, this.cell * 8, this.cell * 0.2, 0.35);
+    this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 6, this.cell * 0.16, 0.2);
+  }
+
+  /** 落雷：锯齿闪电（自天穹劈下）+ 落点亮核 + 小爆闪（手动天雷/天劫/雷音剑势共用） */
+  private boltFx(x: number, y: number, color: number, life = 0.32): void {
     const seg = 8;
     const jag: number[] = [];
     let off = 0;
@@ -211,14 +227,25 @@ export class WorldRenderer {
       off += (Math.random() - 0.5) * 1.5 * (1 - i / seg); // 越接近地面振幅越小
       jag.push(off);
     }
-    this.effects.push({ kind: 'bolt', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xcfe4ff, life: 0.32, maxLife: 0.32, radius: 0, jag });
-    this.effects.push({ kind: 'bolt', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.15, maxLife: 0.15, radius: 0, jag });
-    // 2. 范围雷暴：增长风暴环
-    this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0x9ac8ff, life: 0.6, maxLife: 0.6, radius: 3.4 });
-    this.effects.push({ kind: 'ring', x: e.x, y: e.y, dx: 0, dy: 0, color: 0xffffff, life: 0.32, maxLife: 0.32, radius: 2.2 });
-    // 3. 爆闪粒子
-    this.spawnBurst(e.x, e.y, 0x9ac8ff, 14, this.cell * 8, this.cell * 0.2, 0.35);
-    this.spawnBurst(e.x, e.y, 0xffffff, 6, this.cell * 6, this.cell * 0.16, 0.2);
+    this.effects.push({ kind: 'bolt', x, y, dx: 0, dy: 0, color, life, maxLife: life, radius: 0, jag });
+    this.effects.push({ kind: 'bolt', x, y, dx: 0, dy: 0, color: 0xffffff, life: life * 0.5, maxLife: life * 0.5, radius: 0, jag });
+    this.spawnBurst(x, y, color, 8, this.cell * 6, this.cell * 0.14, 0.3);
+  }
+
+  /** 环形冲击波组（多环递次扩散，营造地震/冲击层次） */
+  private ringsFx(x: number, y: number, rings: { r: number; color: number; life: number }[]): void {
+    for (const rg of rings) {
+      this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: rg.color, life: rg.life, maxLife: rg.life, radius: rg.r });
+    }
+  }
+
+  /** 剑雨/光雨：区域内竖直下落（dir=1）或上腾（dir=-1）的光条（万剑朝宗/剑定乾坤等大场面） */
+  private rainFx(x: number, y: number, radius: number, count: number, color: number, dir: 1 | -1 = 1): void {
+    const rain: { ox: number; phase: number; len: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      rain.push({ ox: Math.random() * 2 - 1, phase: Math.random(), len: 0.3 + Math.random() * 0.7 });
+    }
+    this.effects.push({ kind: 'rain', x, y, dx: 0, dy: 0, color, life: 0.7, maxLife: 0.7, radius, rain, dir });
   }
 
   // ===== 技能特效 =====
@@ -293,68 +320,116 @@ export class WorldRenderer {
     }
   }
 
-  /** v2.0.0：剑心绝技专属特效（比普通技能更酷炫） */
+  /** v2.0.0 / v2.5.1：剑心绝技专属特效——每种都是大场面（剑雨/连环震环/落雷/并行光束），远超普通技能 */
   private mindFx(e: SkillVisual): boolean {
     const c = this.elementColor(e.element);
     const x = e.x;
     const y = e.y;
     switch (e.id) {
-      case 'skill_swordrain': { // 万剑归宗：金色剑雨 + 大扩散环
-        this.spawnBurst(x, y, 0xffd76a, 26, this.cell * 7, this.cell * 0.18, 0.8);
-        this.spawnBurst(x, y, c, 18, this.cell * 6, this.cell * 0.16, 0.6);
-        this.spawnBurst(x, y, 0xffffff, 8, this.cell * 8, this.cell * 0.12, 0.35);
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 0.9, maxLife: 0.9, radius: (e.radius ?? 4) + 1 });
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: c, life: 0.55, maxLife: 0.55, radius: 2.4 });
+      case 'skill_swordrain': { // 万剑归宗：金色剑雨 + 三重扩散环 + 爆闪
+        const R = (e.radius ?? 4) * 1.6;
+        this.rainFx(x, y, R, 18, 0xffd76a);
+        this.rainFx(x, y, R * 0.7, 10, 0xffffff);
+        this.ringsFx(x, y, [
+          { r: (e.radius ?? 4) + 1.5, color: 0xffd76a, life: 0.9 },
+          { r: 2.8, color: c, life: 0.55 },
+          { r: 1.5, color: 0xffffff, life: 0.3 },
+        ]);
+        this.spawnBurst(x, y, 0xffd76a, 26, this.cell * 8, this.cell * 0.18, 0.8);
+        this.spawnBurst(x, y, c, 18, this.cell * 7, this.cell * 0.16, 0.6);
+        this.spawnBurst(x, y, 0xffffff, 10, this.cell * 9, this.cell * 0.12, 0.35);
         break;
       }
-      case 'skill_breakall': { // 一剑破万法：贯穿光束 + 沿途爆点
+      case 'skill_breakall': { // 一剑破万法：并行三束贯穿光（主金光 + 两侧白光）+ 沿线星屑 + 终点大爆
         const dx = e.dx ?? 1;
         const dy = e.dy ?? 0;
-        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffd76a, life: 0.5, maxLife: 0.5, radius: 22 });
-        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffffff, life: 0.22, maxLife: 0.22, radius: 18 });
-        this.spawnBurst(x, y, c, 12, this.cell * 6, this.cell * 0.16, 0.5);
-        this.spawnImpact(x + dx * 18, y + dy * 18, 0xffd76a);
+        const nx = -dy; // 垂直方向（偏移平行光束）
+        const ny = dx;
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffd76a, life: 0.55, maxLife: 0.55, radius: 28 });
+        this.effects.push({ kind: 'beam', x: x + nx * 0.8, y: y + ny * 0.8, dx, dy, color: 0xffffff, life: 0.3, maxLife: 0.3, radius: 24 });
+        this.effects.push({ kind: 'beam', x: x - nx * 0.8, y: y - ny * 0.8, dx, dy, color: 0xffffff, life: 0.3, maxLife: 0.3, radius: 24 });
+        for (let i = 0; i < 6; i++) {
+          const sx = x + dx * (2 + i * 3) + nx * 0.8;
+          const sy = y + dy * (2 + i * 3) + ny * 0.8;
+          this.spawnBurst(sx, sy, 0xffd76a, 3, this.cell * 4, this.cell * 0.1, 0.3);
+        }
+        this.spawnImpact(x + dx * 24, y + dy * 24, 0xffd76a);
+        this.effects.push({ kind: 'ring', x: x + dx * 24, y: y + dy * 24, dx: 0, dy: 0, color: 0xffffff, life: 0.45, maxLife: 0.45, radius: 3 });
+        this.spawnBurst(x, y, c, 14, this.cell * 6, this.cell * 0.16, 0.5);
         break;
       }
-      case 'skill_heartlight': { // 剑心通明：蓝金双环 + 金身光晕
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 1.0, maxLife: 1.0, radius: 3 });
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0x5aa9ff, life: 0.6, maxLife: 0.6, radius: 1.8 });
-        this.spawnBurst(x, y, 0xffd76a, 16, this.cell * 6, this.cell * 0.15, 0.7);
-        this.spawnBurst(x, y, 0x5aa9ff, 10, this.cell * 5, this.cell * 0.12, 0.5);
+      case 'skill_heartlight': { // 剑心通明：金蓝圣光三重光环 + 上升光雨 + 金身光晕
+        this.ringsFx(x, y, [
+          { r: 3.4, color: 0xffd76a, life: 1.0 },
+          { r: 2.2, color: 0x5aa9ff, life: 0.65 },
+          { r: 1.2, color: 0xffffff, life: 0.35 },
+        ]);
+        this.rainFx(x, y, 2.6, 14, 0xffd76a, -1); // 上升光雨（圣光升腾）
+        this.spawnBurst(x, y, 0xffd76a, 18, this.cell * 6, this.cell * 0.15, 0.7);
+        this.spawnBurst(x, y, 0x5aa9ff, 12, this.cell * 5, this.cell * 0.12, 0.5);
+        this.spawnBurst(x, y, 0xffffff, 8, this.cell * 6, this.cell * 0.1, 0.35);
         break;
       }
-      case 'skill_fixworld': { // 剑定乾坤：超大双环 + 全屏爆闪
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 1.1, maxLife: 1.1, radius: (e.radius ?? 5) + 1.5 });
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: c, life: 0.7, maxLife: 0.7, radius: 3.2 });
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffffff, life: 0.4, maxLife: 0.4, radius: 2 });
-        this.spawnBurst(x, y, 0xffd76a, 30, this.cell * 8, this.cell * 0.2, 0.9);
-        this.spawnBurst(x, y, c, 20, this.cell * 7, this.cell * 0.16, 0.65);
+      case 'skill_fixworld': { // 剑定乾坤：连环地震波（四环递次扩散）+ 震碎飞屑上腾 + 重尘爆闪
+        const R = (e.radius ?? 5) + 2;
+        this.ringsFx(x, y, [
+          { r: R, color: 0xffd76a, life: 1.1 },
+          { r: R * 0.7, color: c, life: 0.85 },
+          { r: R * 0.42, color: 0xffffff, life: 0.55 },
+          { r: R * 0.2, color: 0xffd76a, life: 0.32 },
+        ]);
+        this.rainFx(x, y, R * 0.8, 18, 0xffffff, -1); // 震碎飞屑上腾
+        this.spawnBurst(x, y, 0xffd76a, 32, this.cell * 9, this.cell * 0.2, 0.9);
+        this.spawnBurst(x, y, c, 22, this.cell * 8, this.cell * 0.16, 0.65);
+        this.spawnBurst(x, y, 0xffffff, 12, this.cell * 10, this.cell * 0.12, 0.4);
         break;
       }
-      case 'skill_flying': { // 天外飞仙：白金拖尾弹道 + 白色环爆
+      case 'skill_flying': { // 天外飞仙：白金双弹道彗星拖尾 + 起手白光环 + 落点大爆
         const dx = e.dx ?? 1;
         const dy = e.dy ?? 0;
-        this.effects.push({ kind: 'proj', x, y, dx, dy, color: 0xfff2c8, life: 2.4, maxLife: 2.4, radius: 0 });
-        this.spawnBurst(x, y, 0xffffff, 10, this.cell * 6, this.cell * 0.14, 0.4);
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffffff, life: 0.5, maxLife: 0.5, radius: 2 });
+        // 双弹道层：外层金白长尾 + 内层白亮核（内层先熄 → 彗星尾渐短）
+        this.effects.push({ kind: 'proj', x, y, dx, dy, color: 0xfff2c8, life: 2.2, maxLife: 2.2, radius: 0 });
+        this.effects.push({ kind: 'proj', x, y, dx, dy, color: 0xffffff, life: 1.1, maxLife: 1.1, radius: 0 });
+        this.ringsFx(x, y, [
+          { r: 2.2, color: 0xffffff, life: 0.5 },
+          { r: 1.2, color: 0xfff2c8, life: 0.3 },
+        ]);
+        this.spawnBurst(x, y, 0xffffff, 16, this.cell * 7, this.cell * 0.15, 0.45);
+        this.spawnBurst(x, y, 0xfff2c8, 10, this.cell * 6, this.cell * 0.12, 0.6);
+        // 落点大爆（弹道末端由 proj 过期触发，此处补一道亮环轨迹）
+        this.spawnImpact(x + dx * 6, y + dy * 6, 0xfff2c8);
         break;
       }
-      case 'skill_thunderstroke': { // 雷音剑势：紫电贯穿 + 电弧爆点
+      case 'skill_thunderstroke': { // 雷音剑势：紫电贯穿 + 沿线连环落雷 + 终点雷爆
         const dx = e.dx ?? 1;
         const dy = e.dy ?? 0;
-        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xb06cff, life: 0.5, maxLife: 0.5, radius: 24 });
-        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffffff, life: 0.2, maxLife: 0.2, radius: 20 });
-        this.spawnBurst(x, y, 0xb06cff, 18, this.cell * 7, this.cell * 0.16, 0.5);
-        this.spawnImpact(x + dx * 20, y + dy * 20, 0xb06cff);
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xb06cff, life: 0.55, maxLife: 0.55, radius: 28 });
+        this.effects.push({ kind: 'beam', x, y, dx, dy, color: 0xffffff, life: 0.22, maxLife: 0.22, radius: 24 });
+        // 沿线 3~4 道紫电劈落（雷音阵阵）
+        for (let i = 0; i < 4; i++) {
+          const bx = x + dx * (3 + i * 4) + (Math.random() - 0.5) * 1.4;
+          const by = y + dy * (3 + i * 4) + (Math.random() - 0.5) * 1.4;
+          this.boltFx(bx, by, 0xb06cff, 0.3);
+        }
+        this.spawnBurst(x, y, 0xb06cff, 22, this.cell * 8, this.cell * 0.16, 0.5);
+        this.spawnImpact(x + dx * 24, y + dy * 24, 0xb06cff);
+        this.effects.push({ kind: 'ring', x: x + dx * 24, y: y + dy * 24, dx: 0, dy: 0, color: 0xffffff, life: 0.45, maxLife: 0.45, radius: 3.2 });
         break;
       }
-      case 'skill_swordheaven': { // 万剑朝宗：全屏万剑齐发 + 金光冲天
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffd76a, life: 1.2, maxLife: 1.2, radius: (e.radius ?? 6) + 2 });
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: 0xffffff, life: 0.7, maxLife: 0.7, radius: 4 });
-        this.effects.push({ kind: 'ring', x, y, dx: 0, dy: 0, color: c, life: 0.45, maxLife: 0.45, radius: 2.6 });
-        this.spawnBurst(x, y, 0xffd76a, 40, this.cell * 9, this.cell * 0.22, 1.0);
-        this.spawnBurst(x, y, c, 26, this.cell * 8, this.cell * 0.18, 0.7);
-        this.spawnBurst(x, y, 0xffffff, 12, this.cell * 10, this.cell * 0.14, 0.4);
+      case 'skill_swordheaven': { // 万剑朝宗：全屏剑雨 + 四重金光冲击环 + 中央光柱上腾（终极一剑，视觉范围远超命中半径）
+        const R = (e.radius ?? 6) + 4; // 视觉半径 ~10 格 → 大范围震撼
+        this.rainFx(x, y, R, 26, 0xffd76a);
+        this.rainFx(x, y, R * 0.65, 16, 0xffffff);
+        this.ringsFx(x, y, [
+          { r: R + 1, color: 0xffd76a, life: 1.25 },
+          { r: R * 0.62, color: 0xffffff, life: 0.95 },
+          { r: R * 0.36, color: c, life: 0.65 },
+          { r: 2.8, color: 0xffd76a, life: 0.4 },
+        ]);
+        this.rainFx(x, y, 3.2, 12, 0xffffff, -1); // 中央光柱上腾
+        this.spawnBurst(x, y, 0xffd76a, 44, this.cell * 10, this.cell * 0.22, 1.1);
+        this.spawnBurst(x, y, c, 30, this.cell * 9, this.cell * 0.18, 0.75);
+        this.spawnBurst(x, y, 0xffffff, 16, this.cell * 11, this.cell * 0.14, 0.45);
         break;
       }
       default:
@@ -468,6 +543,24 @@ export class WorldRenderer {
         eg.moveTo(cx, cy);
         eg.lineTo(cx + e.dx * len, cy + e.dy * len);
         eg.lineStyle(0);
+      } else if (e.kind === 'rain') {
+        // v2.5.1：剑雨/光雨——区域内竖直下落（dir=1）或上腾（dir=-1）的光条（万剑朝宗等）
+        const p = 1 - t; // 进度 0→1
+        const dir = e.dir ?? 1;
+        const r = e.radius * cell;
+        const span = r * 2.4;
+        const fallDist = span * 1.6;
+        const baseY = dir > 0 ? cy - r * 1.4 : cy + r * 1.4;
+        for (const s of e.rain ?? []) {
+          const prog = (p + s.phase) % 1;
+          const sy = baseY + (dir > 0 ? prog : -prog) * fallDist;
+          const sx = cx + s.ox * r;
+          const alpha = Math.min(1, t * 2.2) * (0.35 + 0.65 * s.len);
+          eg.lineStyle(cell * (0.1 + 0.1 * s.len), e.color, alpha);
+          eg.moveTo(sx, sy);
+          eg.lineTo(sx, sy + dir * cell * (0.7 + 1.5 * s.len));
+          eg.lineStyle(0);
+        }
       }
     }
   }
