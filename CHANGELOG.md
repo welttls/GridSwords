@@ -5,6 +5,17 @@
 
 ---
 
+## v2.8.1 (2026-08-14)
+
+### 🔧 工具链升级：Node 22 + Vite 5
+
+- **Node**：v16.20.0 → **22 LTS（v22.23.2）**（官方 .msi 覆盖安装），npm 6.14.8 → 10.9.8
+- **Vite**：4.5.3 → **5.4.21**（`vite.config.ts` 零改动；build/dev 实测通过；生产依赖 0 漏洞）
+- **锁定 Node 版本**：新增 `.nvmrc`（22）+ package.json `engines.node >= 22`，保障环境一致
+- 移除 README / AI_HANDOFF 中「Node v16 是底线、别升 Vite 5」的过时约束
+
+> 已知事项：`npm audit` 报 2 个 **dev 依赖**漏洞（esbuild ≤0.24.2 SSRF，仅影响本地开发服务器、不影响打包产物）；修复需强升 Vite 8（breaking），暂缓处理。
+
 ## v2.8.0 (2026-08-13)
 
 ### ✨ 新功能：多地图 · 择剑域

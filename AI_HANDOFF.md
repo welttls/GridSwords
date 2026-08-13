@@ -16,7 +16,7 @@
 | 项 | 值 |
 | --- | --- |
 | 语言 | TypeScript(严格模式) |
-| 构建 | **Vite 4**(^4.5.3)——**本机 Node 是 v16.20.0,不能升 Vite 5** |
+| 构建 | **Vite 5**(^5.4.21)——Node 22 LTS(v22.23.2) |
 | 渲染 | PixiJS 7 |
 | 持久化 | localStorage(`SAVE_KEY='swordforge-save-v1'`) |
 
@@ -151,7 +151,7 @@ src/
 
 ## 十、注意事项(踩过的坑)
 
-- **Node v16**：Vite 4 是底线，别升级。
+- **Node 22 LTS**(v22.23.2)：Vite 5(^5.4.21) 已启用；Node 需 ≥22（package.json `engines`）。
 - **Pixi v7** `app.view` 类型是 `ICanvas`，需断言 `as unknown as HTMLCanvasElement`。
 - **日志滚动**：`#app` 高度约束靠 `forge-screen` 类(height:100vh; overflow:hidden)，别删。
 - **响应式**：Pixi 会给 canvas 写内联 `width/height`，CSS 需 `width:auto!important` + `aspect-ratio:1/1`；点击映射用 `rect.width` 归一化。
@@ -171,6 +171,8 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.8.1（2026-08-14）**：工具链升级——Node v16.20.0 → 22 LTS（v22.23.2，官方 .msi 覆盖安装，npm 6→10）、Vite 4(^4.5.3) → 5(^5.4.21)；`vite.config.ts` 零改动，build/dev 实测通过；新增 `.nvmrc`(22) + package.json `engines.node>=22` 锁定版本；同步更新本表技术栈/注意事项。
 
 - **v2.8.0（2026-08-13）**：多地图·择剑域——新增 `src/data/MapDB.ts`（3 图：荒域/熔岩炼狱/寒潭幽谷，成就解锁），`WorldConfig.mapId` + World 构造静态地形 + `World.tick` 专属随机事件（地火喷涌/寒潮涌起），`Game.openMapSelect` 择剑域模态，Renderer 主题色参数化，`GameSave.mapId` 三处同步 + 续档恢复。headless/实机验证通过（三图地形合法、事件避让/到期/频率 0.55 次·日、续档不丢图、build 零错误）。
 
