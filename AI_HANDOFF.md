@@ -35,14 +35,17 @@ npm run preview      # 预览生产构建
 
 | 文件 | 为什么看 |
 | --- | --- |
-| `src/Game.ts` | **唯一编排者**：场景状态机(menu/embryo/forge/appraisal/tournament)、主循环、天劫、鉴定、大比、存档、解锁。多数跨模块逻辑都在这里 |
+| `src/Game.ts` | **唯一编排者**：场景状态机(menu/embryo/forge/appraisal/tournament)、主循环、天劫、鉴定、大比、存档、解锁。v2.8.2 起纯逻辑拆至 `simulation/Appraisal.ts`(鉴定)/`simulation/Tide.ts`(剑潮)/`data/Progression.ts`(解锁成就) |
 | `src/constants.ts` | 全部平衡参数(数值调整先看这里) |
 | `src/simulation/World.ts` | 世界容器：网格/食物/火墙/剑意/分化/剑潮/天劫收缩/主循环 `tick()` |
 | `src/simulation/SwordAgent.ts` | 剑意个体：感知→决策(NN+本能)→行动→精元/剑体结算→词条参悟 |
 | `src/simulation/Duel.ts` | 宗门大比决斗引擎(AP 半即时制、剑诀、招式生成、MUD) |
 | `src/simulation/Skills.ts` | 剑意技能系统(五行天赋 + 词条衍生) |
 | `src/audio/AudioManager.ts` + `sfxSynth.ts` | 音频管理器(BGM 切曲/暂停联动/静音) + Web Audio 合成音效 |
-| `src/data/SaveManager.ts` | 存档结构 `GameSave`(改存档必看) |
+| `src/data/SaveManager.ts` | 存档结构 `GameSave`(改存档必看) + v2.8.2 `buildGameSave`(序列化) |
+| `src/simulation/Appraisal.ts` | **v2.8.2 剑成鉴定纯逻辑**（评分 `computeAppraisal`/特质 `computeTags`/悟道之树 `buildEvolutionTree`，headless） |
+| `src/simulation/Tide.ts` | **v2.8.2 剑潮投放**（`dropDailyTide` 四档，headless） |
+| `src/data/Progression.ts` | **v2.8.2 万剑榜解锁/成就累计**（`computeRankUnlocks`/`applyUnlocks`/`accumulateStats`） |
 | `src/data/MapDB.ts` | **v2.8.0 剑域地图表**（多地图·择剑域：静态地形生成/主题色/资源覆盖/专属事件/成就解锁） |
 | `src/ui/Renderer.ts` + `HUD.ts` | Pixi 画布渲染 + DOM 主界面 |
 
@@ -53,9 +56,9 @@ src/
 ├── main.ts / Game.ts / constants.ts   # 入口 / 唯一编排者 / 全部平衡参数
 ├── audio/    # AudioManager(BGM/SFX/静音) + sfxSynth(Web Audio 合成音效)
 ├── types/    # Genome / Sword / Environment / Material
-├── simulation/  # World / SwordAgent / NeuralNet / Genetics / BattleResolver / Duel / Skills / Chronicle(事件层) / SwordTale(剑谱) (完全 headless)
+├── simulation/  # World / SwordAgent / NeuralNet / Genetics / BattleResolver / Duel / Skills / Chronicle(事件层) / SwordTale(剑谱) / Appraisal(鉴定纯逻辑) / Tide(剑潮投放) (完全 headless)
 ├── ui/       # Renderer / HUD / Menu / DayPanel / Appraisal / Battle / Ranking / Codex / SwordDetail / AchievementsPanel / taleView / swordIcon / modals / tooltip
-├── data/     # RecipeDB / SwordArts / NPCs / SaveManager / RankingManager / AffixDB / Achievements / MapDB(v2.8.0 地图表)
+├── data/     # RecipeDB / SwordArts / NPCs / SaveManager / RankingManager / AffixDB / Achievements / MapDB(v2.8.0 地图表) / Progression(解锁/累计)
 └── utils/    # mathUtils / eventBus / dom
 ```
 
@@ -171,6 +174,8 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.8.2（2026-08-14）**：重构——`Game.ts`(~1970 行)职责拆分：纯逻辑迁至新模块 `simulation/Appraisal.ts`(鉴定评分/特质/悟道之树)、`simulation/Tide.ts`(剑潮投放)、`data/Progression.ts`(解锁/累计)；`SaveManager` 新增 `buildGameSave`、`Achievements` 新增 `evaluateNewAchievements`。`Game.ts` 收敛至 ~1600 行，外部接口与 UI 调用点零改动、行为零变化；build 零错误(519 模块)。
 
 - **v2.8.1（2026-08-14）**：工具链升级——Node v16.20.0 → 22 LTS（v22.23.2，官方 .msi 覆盖安装，npm 6→10）、Vite 4(^4.5.3) → 5(^5.4.21)；`vite.config.ts` 零改动，build/dev 实测通过；新增 `.nvmrc`(22) + package.json `engines.node>=22` 锁定版本；同步更新本表技术栈/注意事项。
 

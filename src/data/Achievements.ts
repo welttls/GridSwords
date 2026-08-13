@@ -196,3 +196,18 @@ export const ACHIEVEMENTS_BY_CATEGORY: { key: AchievementCategory; label: string
   { key: 'emergence', label: '涌现' },
   { key: 'cumulative', label: '累计' },
 ];
+
+/**
+ * v2.8.2：结算时评估全部未解锁成就（由 Game.checkAchievements 迁出的纯逻辑）。
+ * 命中即写入 save.achievements，返回新解锁的成就 id（toast/存档由调用方处理）。
+ */
+export function evaluateNewAchievements(save: GameSave, ctx: AchievementCtx): string[] {
+  const newly: string[] = [];
+  for (const a of ACHIEVEMENTS) {
+    if (save.achievements.includes(a.id)) continue;
+    if (!a.evaluate(ctx, save)) continue;
+    save.achievements.push(a.id);
+    newly.push(a.id);
+  }
+  return newly;
+}

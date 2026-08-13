@@ -8,21 +8,24 @@ import { HUD, type FormationBrush, type MaterialItem } from './ui/HUD';
 import { buildMenu, buildEmbryoSelect, buildElementCard } from './ui/MenuScene';
 import { buildMaterialAura, openDailyDropPanel, openTidePanel, type DailyDropKind } from './ui/DayPanel';
 import { openAudioPanel } from './ui/AudioPanel'; // v2.6.1：炼剑界面音律面板（背景乐/音效 开关+滑块合一）
-import { buildAppraisal, type AppraisalData, type EvoNode } from './ui/AppraisalScene';
+import { buildAppraisal, type AppraisalData } from './ui/AppraisalScene';
 import { writeSwordTale, writeDefeatNote } from './simulation/SwordTale';
 import { buildTournament, type BattleUI, type OpponentInfo } from './ui/BattleScene';
 import { openSwordDetail } from './ui/SwordDetail';
 import { openRanking } from './ui/RankingView';
 import { openCodex } from './ui/CodexView';
 import { openAchievements } from './ui/AchievementsPanel';
-import { ACHIEVEMENTS, type AchievementCtx } from './data/Achievements';
-import { SaveManager, defaultSave, type GameSave } from './data/SaveManager';
+import { ACHIEVEMENTS, evaluateNewAchievements, type AchievementCtx } from './data/Achievements';
+import { SaveManager, defaultSave, buildGameSave, type GameSave } from './data/SaveManager';
 import { getMaterial, RECIPES, recipesSorted, unlockLabel } from './data/RecipeDB';
 import { RankingManager } from './data/RankingManager';
 import { SWORD_ARTS } from './data/SwordArts';
 import { NPC_OPPONENTS } from './data/NPCs';
 import { getMap, MAPS, type ElementAffinity } from './data/MapDB'; // v2.8.0：剑域地图（择剑域）
-import { randomGenome, genomeSimilarity, genomeSum, ELEMENT_LABEL, randomWildGenome, randomMildGenome, randomFierceGenome } from './simulation/Genetics';
+import { randomGenome, ELEMENT_LABEL } from './simulation/Genetics';
+import { computeAppraisal } from './simulation/Appraisal'; // v2.8.2：剑成鉴定纯逻辑
+import { dropDailyTide } from './simulation/Tide'; // v2.8.2：剑潮投放纯逻辑
+import { computeRankUnlocks as computeRankUnlocksPure, applyUnlocks as applyUnlocksPure, accumulateStats as accumulateStatsPure } from './data/Progression'; // v2.8.2：解锁/累计纯逻辑
 import { eventBus, EVT } from './utils/eventBus';
 import { audio } from './audio/AudioManager';
 import { uid, nowDateStr, randomInt } from './utils/mathUtils';
@@ -34,7 +37,6 @@ import {
   MAX_DAYS,
   TICKS_PER_DAY,
   TICKS_PER_SECOND,
-  TOTAL_TICKS,
   SHRINK_INTERVAL_TICKS,
   TRIBULATION_MAX_TICKS,
   NN_LAYERS,
@@ -51,14 +53,11 @@ import {
   FOOD_DROP_BATCH,
   EMERGENCE_THRESHOLD,
   EMERGENCE_MIN_GEN,
-  MAX_HP,
-  ENERGY_SPLIT_THRESHOLD,
-  MIND_MAX_BONUS,
   mindSizes,
   ENCOUNTER_SEED_DAILY_CHANCE,
 } from './constants';
 import { Duel } from './simulation/Duel';
-import { MIND_SKILL_BY_ID, MIND_SKILL_POOLS } from './simulation/Skills';
+import { MIND_SKILL_BY_ID } from './simulation/Skills';
 
 type SceneName = 'menu' | 'embryo' | 'forge' | 'appraisal' | 'tournament';
 
@@ -1025,55 +1024,7 @@ export class Game {
     if (!w) return;
     this.save.dailyDropKind = kind; // v1.10.0：记住本局选择 (超时沿用/免弹窗投放依据)
     const day = w.config.currentDay;
-    const range = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
-    let spawned = 0;
-    let label = '默许天意';
-    // v2.2.0：凶潮投洞玄（剑心 2 级）剑意——NN 用洞玄容量、上限随境界抬升、随机洞玄绝技，打破种群优势
-    const spawnBatch = (n: number, make: () => Genome, opts?: { mindRealm?: number }) => {
-      for (let i = 0; i < n; i++) {
-        const realm = opts?.mindRealm ?? 0;
-        const brain = new SimpleNN(realm > 0 ? mindSizes(realm) : NN_LAYERS);
-        let mindSkillIds: string[] | undefined;
-        if (realm > 0) {
-          const pool = MIND_SKILL_POOLS[realm - 1] ?? [];
-          if (pool.length > 0) mindSkillIds = [pool[randomInt(0, pool.length - 1)].id];
-        }
-        const maxHp = MAX_HP + MIND_MAX_BONUS * realm;
-        const maxEnergy = ENERGY_SPLIT_THRESHOLD + MIND_MAX_BONUS * realm;
-        if (w.spawnWildSword(make(), brain, { mindRealm: realm, maxHp, maxEnergy, mindSkillIds })) spawned++;
-      }
-    };
-    switch (kind) {
-      case 'mild':
-        spawnBatch(range(2, 3), () => randomMildGenome(day));
-        label = '温养之潮';
-        break;
-      case 'tide':
-        spawnBatch(range(6, 8), () => randomWildGenome(day));
-        label = '剑潮汹涌';
-        break;
-      case 'fierce':
-        spawnBatch(range(2, 3), () => randomFierceGenome(day), { mindRealm: 2 }); // v2.2.0：凶潮投洞玄剑意
-        label = '天外凶潮';
-        break;
-      case 'none':
-        label = '静待天时';
-        break;
-      default: {
-        const r = Math.random();
-        if (r < 0.34) {
-          spawnBatch(range(2, 3), () => randomMildGenome(day));
-          label = '温养之潮';
-        } else if (r < 0.67) {
-          spawnBatch(range(6, 8), () => randomWildGenome(day));
-          label = '剑潮汹涌';
-        } else {
-          // auto 默许天意：凶潮为普通凡心（洞玄凶剑只限玩家主动选「天外凶潮」，防无干预局被高境剑碾压致种群崩溃）
-          spawnBatch(range(2, 3), () => randomFierceGenome(day));
-          label = '天外凶潮';
-        }
-      }
-    }
+    const { spawned, label } = dropDailyTide(w, kind, day);
     if (spawned > 0) eventBus.emit(EVT.LOG, `第${day}日子时，${label}降下${spawned}道游离剑意。`);
     else if (kind === 'none') eventBus.emit(EVT.LOG, `第${day}日子时：你未投剑意，剑域唯余余波自涌。`);
     else eventBus.emit(EVT.LOG, `第${day}日子时：剑域已无立足之地，${label}竟无处落脚。`); // P3：网格饱和时也给出反馈
@@ -1324,9 +1275,9 @@ export class Game {
     this.tribulationEnded = true;
     this.paused = true;
     eventBus.emit(EVT.TRIBULATION_END, null);
-    const data = this.computeAppraisal();
+    const data = this.world ? computeAppraisal(this.world, this.embryoGenome, this.save.finishedGames) : null;
     // v2.5.0：累计统计（本局 Chronicle → save.stats）
-    if (this.world) this.accumulateStats(this.world);
+    if (this.world) accumulateStatsPure(this.save.stats, this.world);
     if (!data) {
       // 炼剑失败：剑意尽灭，无遗蜕可拾 → 不得剑尘 (仅炼成才得)
       this.save.finishedGames++;
@@ -1402,99 +1353,7 @@ export class Game {
     const overlay = openModal('天劫之下 · 剑意尽灭', body, { width: 460, onClose: close });
   }
 
-  // ================= 剑成鉴定 =================
-  private computeAppraisal(): AppraisalData | null {
-    const w = this.world;
-    if (!w) return null;
-    const survivors = [...w.swords.values()];
-    if (survivors.length === 0) return null;
-    const embryo = this.embryoGenome;
-    const totalTicks = TOTAL_TICKS;
-
-    const scored = survivors.map((s) => {
-      const tags = this.computeTags(s);
-      const survivalRatio = Math.min(1, s.state.age / totalTicks);
-      const sim = embryo ? genomeSimilarity(s.state.genome, embryo) : 0.5;
-      const sum = genomeSum(s.state.genome);
-      const behaviorBonus = Math.min(15, 5 + tags.length * 5);
-      const score = survivalRatio * 10 + sim * 20 + sum * 0.5 + behaviorBonus;
-      return { s, tags, score, survivalRatio, sim, sum, behaviorBonus };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    const winner = scored[0];
-    const tree = this.buildEvolutionTree(winner.s.state.id);
-    // v2.5.0：剑谱——剑成时生成（占位名「无名剑」，命名后于 finishAppraisal 重生成定稿）
-    const tale = w ? writeSwordTale(w, winner.s.state, this.save.finishedGames + 1, Math.round(winner.score * 10) / 10) : null;
-    return {
-      winner: winner.s,
-      score: Math.round(winner.score * 10) / 10,
-      breakdown: [
-        { label: `存续 ${(winner.survivalRatio * 100).toFixed(0)}%`, value: winner.survivalRatio * 10 },
-        { label: '血脉相承', value: winner.sim * 20 },
-        { label: '剑谱总和', value: winner.sum * 0.5 },
-        { label: '本性殊异', value: winner.behaviorBonus },
-      ],
-      tags: winner.tags,
-      tree,
-      populationHistory: w.populationHistory,
-      totalTicks,
-      tale,
-    };
-  }
-
-  private computeTags(s: SwordAgent): string[] {
-    const b = s.behavior;
-    const tags: string[] = [];
-    if (b.killCount >= 3) tags.push('斩念成性');
-    if (b.eatCount >= 20) tags.push('吞金成性'); // 与 eat30 词条门槛一致
-    if (b.minHp > 60) tags.push('百炼之体');
-    if (b.cellsVisited >= 350 && b.cellsVisited / Math.max(1, s.state.age) >= 0.35) tags.push('游历万方'); // 与 roam400 词条门槛一致 (v1.11.0：足迹+游走密度)
-    if (b.waitCount >= 200 && s.state.age > 2000) tags.push('静若渊渟');
-    if (s.state.survivedThunder) tags.push('雷劫余生'); // v1.9.1：个体经历 (曾历雷击而存续)，不再按世界级开关全员标注
-    return tags.slice(0, 3);
-  }
-
-  private buildEvolutionTree(winnerId: string): EvoNode[] {
-    const w = this.world;
-    if (!w) return [];
-    const chain: { id: string; generation: number; day: number; element: Element }[] = [];
-    let id = winnerId;
-    let guard = 0;
-    let chainRootId = '';
-    while (id && guard++ < 2000) {
-      const info = w.lineage.get(id);
-      if (!info) break;
-      chain.push({ id, generation: info.generation, day: info.day, element: info.element });
-      chainRootId = id;
-      id = info.parentId;
-    }
-    // v1.11.0：血统溯源——链根为本命剑胚才拼接胚源；
-    // 若本命剑是外来剑意（剑潮投放的独立血脉），其树根即外来根，勿拼接成本命后代误导血缘
-    const rootIsSeed = chainRootId === w.rootId;
-    const rootElement = rootIsSeed
-      ? (this.embryoGenome?.element ?? chain[chain.length - 1]?.element ?? 'metal')
-      : chain[chain.length - 1]?.element ?? 'metal';
-    if (rootIsSeed) {
-      chain.push({ id: w.rootId ?? 'root', generation: 1, day: 0, element: rootElement });
-    }
-    chain.reverse();
-
-    const childrenCount = (parentId: string): number => {
-      let n = 0;
-      for (const v of w.lineage.values()) if (v.parentId === parentId) n++;
-      return n;
-    };
-
-    return chain.map((n, i) => {
-      const isWinner = i === chain.length - 1;
-      let label = '血脉延续';
-      if (i === 0) label = rootIsSeed ? '凡铁剑意' : '外来剑意';
-      else if (n.element !== chain[i - 1].element) label = '血脉蜕变';
-      if (isWinner) label = '本命剑';
-      return { id: n.id, generation: n.generation, day: n.day, label, children: childrenCount(n.id), element: n.element, isWinner };
-    });
-  }
-
+  // ================= 剑成鉴定 (评分/特质/悟道之树已迁至 simulation/Appraisal.ts, v2.8.2) =================
   private showAppraisal(data: AppraisalData): void {
     audio.setBgm(null); // 鉴定：静默仪式感
     audio.preload('battle'); // 预载大比曲，进入试剑台立即出声
@@ -1546,7 +1405,7 @@ export class Game {
     this.save.bestScore = Math.max(this.save.bestScore, ranked.score);
     const rank = res.rank;
     if (rank === 1) this.save.stats.totalFirstRanks++; // v2.5.0：登顶统计
-    this.applyUnlocks(this.computeRankUnlocks(rank));
+    this.applyUnlocks(computeRankUnlocksPure(rank, this.save.history.length, this.save.unlockedMaterialIds));
     // v2.5.0：结算成就（万剑之王等榜单类）
     this.checkAchievements({ world: this.world, champion: winner.state, score: data.score, rank });
     // 持久化大比阶段：刷新后可回到试剑台
@@ -1722,7 +1581,7 @@ export class Game {
     }
 
     const rank = this.save.history.findIndex((h) => h.id === this.appraisedRanked?.id) + 1;
-    this.applyUnlocks(this.computeRankUnlocks(rank));
+    this.applyUnlocks(computeRankUnlocksPure(rank, this.save.history.length, this.save.unlockedMaterialIds));
 
     if (playerWin && !this.save.hasBeatenFirstOpponent) {
       this.save.hasBeatenFirstOpponent = true;
@@ -1809,99 +1668,27 @@ export class Game {
     return null;
   }
 
-  // ================= 解锁 =================
-  /** 排名解锁需榜单有一定规模，保持成长曲线 (3 柄名剑以上) */
-  private computeRankUnlocks(rank: number): MaterialUnlock[] {
-    if (rank <= 0) return []; // P3：rank=0 (未上榜) 时不解锁，避免 evaluateUnlocks 误判 0<=10
-    if (this.save.history.length < 3) return [];
-    return RankingManager.evaluateUnlocks(rank, this.save.unlockedMaterialIds);
-  }
-
+  // ================= 解锁 (纯逻辑已迁至 data/Progression.ts, v2.8.2) =================
   private applyUnlocks(unlocks: MaterialUnlock[]): void {
-    for (const u of unlocks) {
-      for (const m of RECIPES) {
-        if (m.unlock === u && !this.save.unlockedMaterialIds.includes(m.id)) {
-          this.save.unlockedMaterialIds.push(m.id);
-          toast(`🎉 解锁了「${m.name}」！`);
-        }
-      }
+    for (const name of applyUnlocksPure(unlocks, this.save.unlockedMaterialIds)) {
+      toast(`🎉 解锁了「${name}」！`);
     }
   }
 
-  // ================= 成就 (v2.5.0) =================
-  /** 本局 Chronicle 累计进 save.stats（结算时调用一次） */
-  private accumulateStats(world: World): void {
-    const s = this.save.stats;
-    const ev = world.chronicle.all();
-    s.totalRuns++;
-    s.totalKills += world.chronicle.count('kill');
-    if (world.chronicle.count('emerge') > 0) s.totalEmergences++;
-    let lk = 0;
-    for (const e of ev) if (e.kind === 'lightning') lk += e.data?.kills ?? 0;
-    s.totalLightningKills += lk;
-  }
-
+  // ================= 成就 (判定已迁至 data/Achievements.ts, v2.8.2) =================
   /** 结算时评估全部未解锁成就；新解锁 → toast + 存档 */
   private checkAchievements(ctx: AchievementCtx): void {
-    const newly: string[] = [];
-    for (const a of ACHIEVEMENTS) {
-      if (this.save.achievements.includes(a.id)) continue;
-      if (!a.evaluate(ctx, this.save)) continue;
-      this.save.achievements.push(a.id);
-      newly.push(a.name);
-    }
+    const newly = evaluateNewAchievements(this.save, ctx);
     if (newly.length > 0) {
-      toast(newly.length === 1 ? `🏆 成就解锁「${newly[0]}」` : `🏆 成就解锁：${newly.map((n) => `「${n}」`).join(' ')}`, 4200);
+      const names = newly.map((id) => ACHIEVEMENTS.find((a) => a.id === id)?.name ?? id);
+      toast(names.length === 1 ? `🏆 成就解锁「${names[0]}」` : `🏆 成就解锁：${names.map((n) => `「${n}」`).join(' ')}`, 4200);
       this.saveGame();
     }
   }
 
-  // ================= 存档 =================
-  private exportSave(): GameSave {
-    return {
-      version: 1,
-      unlockedMaterialIds: this.save.unlockedMaterialIds,
-      history: this.save.history,
-      bestScore: this.save.bestScore,
-      finishedGames: this.save.finishedGames,
-      hasBeatenFirstOpponent: this.save.hasBeatenFirstOpponent,
-      swordCodex: this.save.swordCodex,
-      achievements: this.save.achievements, // v2.5.0
-      stats: this.save.stats, // v2.5.0
-      activeRun: this.scene === 'forge' && !!this.world,
-      embryoGenome: this.embryoGenome,
-      day: this.world?.config.currentDay ?? 1,
-      tickCounter: this.world?.tickCounter ?? 0,
-      materialCounts: this.save.materialCounts,
-      feedDropped: this.save.feedDropped,
-      formation: this.save.formation, // v2.3.0：布阵次数
-      dailyDropKind: this.save.dailyDropKind, // v2.7.1：补导出（原漏同步→刷新丢剑潮偏好）
-      dailyDropLocked: this.save.dailyDropLocked, // v2.7.1
-      mapId: this.save.mapId, // v2.8.0：本局剑域地图
-      swords: this.world && this.scene === 'forge'
-        ? [...this.world.swords.values()].map((a) => ({
-            ...a.state,
-            // v1.12.0：从活 brain 取权重（剑心扩容后 state 快照可能过期）
-            brainWeights: a.brain.getWeights(),
-            brainBiases: a.brain.getBiases(),
-            behavior: a.behavior,
-          }))
-        : [], // v2.7.1：非炼剑场景不再序列化整场剑意（返回主菜单时避免孤儿数据入档）
-      rootId: this.world?.rootId ?? null,
-      maxGeneration: this.world?.maxGeneration ?? 1,
-      eco: this.world ? this.world.exportEcoState() : null,
-      // v2.7.1：血统链随档保存（隔代祖先陨落后，续档血亲判定/悟道树不再断裂）
-      lineage: this.world ? [...this.world.lineage.entries()] : [],
-      // v2.7.1：剑域纪事随档保存（刷新续玩不丢前半局事件）
-      chronicle: this.world ? this.world.chronicle.all().slice() : [],
-      pendingScene: this.save.pendingScene,
-      pendingAppraisal: this.save.pendingAppraisal,
-      pendingBattlePlayerState: this.save.pendingBattlePlayerState,
-    };
-  }
-
+  // ================= 存档 (序列化已迁至 data/SaveManager.buildGameSave, v2.8.2) =================
   saveGame(): void {
-    const ok = SaveManager.save(this.exportSave());
+    const ok = SaveManager.save(buildGameSave(this.save, this.scene, this.world, this.embryoGenome));
     // v2.7.1：写入失败（存储已满/隐私模式）明确提示，防玩家不知情丢进度
     if (!ok) toast('⚠️ 存档写入失败——浏览器存储已满或不可用，进度可能无法保留');
   }

@@ -5,6 +5,19 @@
 
 ---
 
+## v2.8.2 (2026-08-14)
+
+### 🔧 重构：Game.ts 职责拆分(纯逻辑模块化)
+
+- **拆分动机**：`Game.ts` 已膨胀至 ~1970 行(11 块职责)，将纯逻辑抽离为独立模块；`Game.ts` 收敛至 ~1600 行，仍为**唯一编排者**(场景/流程/交互)，行为零变化
+- **新增模块**：
+  - `src/simulation/Appraisal.ts`——剑成鉴定纯逻辑：评分 `computeAppraisal` / 特质 `computeTags` / 悟道之树 `buildEvolutionTree`
+  - `src/simulation/Tide.ts`——每日子时剑潮投放 `dropDailyTide`(温养/剑潮/凶潮洞玄/默许天意四档，仅改世界状态)
+  - `src/data/Progression.ts`——万剑榜解锁 `computeRankUnlocks` / 炉材解锁 `applyUnlocks` / 累计统计 `accumulateStats`
+- **扩展模块**：`SaveManager` 新增 `buildGameSave`(存档序列化，从 `exportSave` 迁出)；`Achievements` 新增 `evaluateNewAchievements`(结算判定)
+- **外部接口不变**：`Game.finishAppraisal`/`chooseDailyDrop`/`saveGame` 等公开方法与 8 个 UI 文件调用点零改动；跨层类型引用一律 `import type`(运行时 headless 不引 DOM)
+- 验证：`tsc --noEmit` 零错误、`vite build` 通过(519 模块)；逻辑逐字搬迁，无行为变化
+
 ## v2.8.1 (2026-08-14)
 
 ### 🔧 工具链升级：Node 22 + Vite 5

@@ -208,3 +208,55 @@ export class SaveManager {
     }
   }
 }
+
+/**
+ * v2.8.2：由 Game 状态构建可序列化存档（从 Game.exportSave 迁出的纯函数）。
+ * scene 仅用于判断是否处于炼剑场景（非炼剑场景不序列化整场剑意，避免孤儿数据入档）。
+ */
+export function buildGameSave(
+  save: GameSave,
+  scene: string,
+  world: World | null,
+  embryo: Genome | null,
+): GameSave {
+  return {
+    version: 1,
+    unlockedMaterialIds: save.unlockedMaterialIds,
+    history: save.history,
+    bestScore: save.bestScore,
+    finishedGames: save.finishedGames,
+    hasBeatenFirstOpponent: save.hasBeatenFirstOpponent,
+    swordCodex: save.swordCodex,
+    achievements: save.achievements, // v2.5.0
+    stats: save.stats, // v2.5.0
+    activeRun: scene === 'forge' && !!world,
+    embryoGenome: embryo,
+    day: world?.config.currentDay ?? 1,
+    tickCounter: world?.tickCounter ?? 0,
+    materialCounts: save.materialCounts,
+    feedDropped: save.feedDropped,
+    formation: save.formation, // v2.3.0：布阵次数
+    dailyDropKind: save.dailyDropKind, // v2.7.1：补导出（原漏同步→刷新丢剑潮偏好）
+    dailyDropLocked: save.dailyDropLocked, // v2.7.1
+    mapId: save.mapId, // v2.8.0：本局剑域地图
+    swords: world && scene === 'forge'
+      ? [...world.swords.values()].map((a) => ({
+          ...a.state,
+          // v1.12.0：从活 brain 取权重（剑心扩容后 state 快照可能过期）
+          brainWeights: a.brain.getWeights(),
+          brainBiases: a.brain.getBiases(),
+          behavior: a.behavior,
+        }))
+      : [], // v2.7.1：非炼剑场景不再序列化整场剑意（返回主菜单时避免孤儿数据入档）
+    rootId: world?.rootId ?? null,
+    maxGeneration: world?.maxGeneration ?? 1,
+    eco: world ? world.exportEcoState() : null,
+    // v2.7.1：血统链随档保存（隔代祖先陨落后，续档血亲判定/悟道树不再断裂）
+    lineage: world ? [...world.lineage.entries()] : [],
+    // v2.7.1：剑域纪事随档保存（刷新续玩不丢前半局事件）
+    chronicle: world ? world.chronicle.all().slice() : [],
+    pendingScene: save.pendingScene,
+    pendingAppraisal: save.pendingAppraisal,
+    pendingBattlePlayerState: save.pendingBattlePlayerState,
+  };
+}
