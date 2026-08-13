@@ -310,8 +310,8 @@ export function tryCastSkill(agent: SwordAgent, world: World, skills: SwordSkill
         want =
           enemy !== null &&
           enemy.dist <= 8 &&
-          !(st.buffAtkTicks ?? 0 > 0) &&
-          !(st.buffDefTicks ?? 0 > 0) &&
+          !((st.buffAtkTicks ?? 0) > 0) && // v2.7.1：括号防 ?? 与 > 优先级混淆
+          !((st.buffDefTicks ?? 0) > 0) &&
           Math.random() < BUFF_CAST_CHANCE * castMult;
         if (want) bonus += 2;
         break;
@@ -373,7 +373,7 @@ export function castSkill(
             dx: other.state.position.x === x ? 0 : Math.sign(other.state.position.x - x),
             dy: other.state.position.y === y ? 0 : Math.sign(other.state.position.y - y),
           });
-          if (s.affix === 'poison' && !(other.state.poisonTicks ?? 0 > 0)) {
+          if (s.affix === 'poison' && !((other.state.poisonTicks ?? 0) > 0)) { // v2.7.1：括号防优先级混淆
             other.state.poisonDmg = 2;
             other.state.poisonTicks = 24;
           }

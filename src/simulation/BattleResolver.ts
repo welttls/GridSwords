@@ -65,7 +65,7 @@ export function resolveBattle(attacker: SwordAgent, defender: SwordAgent): Battl
   }
 
   // v2.0.0：木系「毒木反噬」——淬毒木剑被攻击时，攻击者反中毒（木系温和不追杀，靠毒反噬磨敌，被动击杀路径）
-  if (defender.state.genome.element === 'wood' && defender.state.genome.affixes.includes('poison') && !(attacker.state.poisonTicks ?? 0 > 0)) {
+  if (defender.state.genome.element === 'wood' && defender.state.genome.affixes.includes('poison') && !((attacker.state.poisonTicks ?? 0) > 0)) { // v2.7.1：括号防优先级混淆
     attacker.state.poisonDmg = 2;
     attacker.state.poisonTicks = 36;
   }

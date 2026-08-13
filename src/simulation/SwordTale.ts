@@ -248,13 +248,24 @@ function episodeText(e: ChronicleEvent, ctx: TaleCtx): string | null {
         rng,
       );
     case 'death': {
-      // 血亲陨落（冠军血脉的一员倒下）
-      if (ctx.lineage.has(e.actorId ?? '') && e.actorId !== champion.id) {
-        const info = world.lineage.get(e.actorId ?? '');
-        const gen = info?.generation ?? 1;
+      // 血亲陨落（本命血脉相关者倒下；v2.7.1：区分祖辈/后裔——原用祖先链导致「祖辈被称剑子」语义倒置）
+      const diedId = e.actorId ?? '';
+      if (diedId === champion.id) return null;
+      const info = world.lineage.get(diedId);
+      const gen = info?.generation ?? 1;
+      // 后裔陨落（字面「剑子」）
+      if (ctx.descendants.has(diedId)) {
         const pool = [
           `血脉同源的第${gen}代剑子陨落——独余此剑，砥砺前行。`,
           `同源一脉折损一位第${gen}代剑子，${el}剑睹之默然。`,
+        ];
+        return pick(pool, rng);
+      }
+      // 祖辈陨落（血亲相残，多见于天劫）——不用「剑子」称谓
+      if (ctx.lineage.has(diedId)) {
+        const pool = [
+          `同源祖辈于天劫中陨落，本命剑意竟是最后的赢家。`,
+          `血脉源头轰然崩断，唯余此剑背负一脉而前行。`,
         ];
         return pick(pool, rng);
       }
@@ -537,6 +548,8 @@ interface TaleCtx {
   champion: SwordState;
   world: World;
   lineage: Set<string>;
+  /** v2.7.1：冠军血脉后裔集合（世界 lineage 中祖先链含冠军者） */
+  descendants: Set<string>;
   rng: () => number;
 }
 
@@ -548,7 +561,7 @@ export function writeSwordTale(
   score: number,
   name?: string,
 ): SwordTaleData {
-  // 冠军血统链（含自身）
+  // 冠军血统链（含自身，向上追溯祖辈）
   const lineage = new Set<string>();
   {
     let id = champion.id;
@@ -560,10 +573,29 @@ export function writeSwordTale(
       id = info.parentId;
     }
   }
+  // v2.7.1：冠军血脉后裔（向下追溯——祖先链含冠军的一切剑意）
+  const descendants = new Set<string>();
+  {
+    for (const [id, node] of world.lineage) {
+      if (id === champion.id) continue;
+      let cur = node.parentId;
+      let guard = 0;
+      while (cur && guard++ < 2000) {
+        if (cur === champion.id) {
+          descendants.add(id);
+          break;
+        }
+        const up = world.lineage.get(cur);
+        if (!up || !up.parentId) break;
+        cur = up.parentId;
+      }
+    }
+  }
   const ctx: TaleCtx = {
     champion,
     world,
     lineage,
+    descendants,
     rng: mulberry32(hashSeed(champion.id)),
   };
   const heroName = (name || '').trim() || '无名剑';

@@ -56,6 +56,8 @@ export class SwordAgent {
   private lastHitBy: string | undefined;
   /** v2.5.0：濒死逃生追踪——跌破 20% 待报，回血过 60% 记「nadir」事件（剑谱素材） */
   private nadirPending = false;
+  /** v2.7.1：分化失败（满场无空位）后的冷却 tick——避免每 tick 重复变异+克隆大脑 */
+  private splitRetryUntil = 0;
 
   counterReady = false;
   /** 本 tick 是否有所行动 (移动/采气/碰撞)，影响精元消耗 */
@@ -362,7 +364,7 @@ export class SwordAgent {
   private performMoveTo(x: number, y: number): boolean {
     // v2.3.0：一步踏入熔岩，剑体崩解（一击必杀）——普通移动/执念犯险的唯一下场
     if (this.world.isLava(x, y)) {
-      this.die();
+      this.die('lava'); // v2.7.1：显式死因（原自推断误记 wound，成就「地形大师」/剑谱死因失真）
       return false;
     }
     this.prevCell = { x: this.state.position.x, y: this.state.position.y };
@@ -387,7 +389,10 @@ export class SwordAgent {
       const defender = this.world.swords.get(otherId);
       if (defender) {
         // v1.12.0：血亲不相攻——同源一脉视作阻挡，绕行而过（不战斗、不寄灵）；v2.1.0 天劫期间血亲亦相争
-        if (this.world.kinProtected() && this.world.isKin(this, defender)) return false;
+        if (this.world.kinProtected() && this.world.isKin(this, defender)) {
+          this.actedThisTick = false; // v2.7.1：被血亲阻挡、实际未行动——不按行动计满精元
+          return false;
+        }
         this.behavior.attackCount++;
         const result = resolveBattle(this, defender);
         eventBus.emit(EVT.BATTLE_HIT, {
@@ -473,6 +478,10 @@ export class SwordAgent {
     const mired = rooted || slowed || deepMired;
 
     tickBuffs(this.state);
+    // v2.7.1：灼烧「先判后减」——与中毒一致，避免首 tick 被吞（原 burningTicks=48 实烧 47）
+    if ((this.state.burningTicks ?? 0) > 0) {
+      this.state.hp -= BURN_DMG_PER_TICK;
+    }
     tickCombatStates(this.state); // v2.3.0：反震/免控/烈焰甲/定身/减速/灼烧计时
 
     // v2.3.0：熔岩——立于其上（瞬移落地）超过一个完整 tick 即剑体崩解；踏入（普通移动进入）已在 performMoveTo 即死
@@ -522,7 +531,7 @@ export class SwordAgent {
 
     // v2.3.0：熔岩停留致死——本 tick 开始即在熔岩上，行动+施法后仍未离开 → 剑体崩解（瞬移落地当 tick 豁免，可再瞬移/移动逃生）
     if (wasOnLava && this.world.isLava(this.state.position.x, this.state.position.y)) {
-      this.die();
+      this.die('lava'); // v2.7.1：显式死因
       return;
     }
 
@@ -535,10 +544,6 @@ export class SwordAgent {
     if ((this.state.poisonTicks ?? 0) > 0) {
       this.state.hp -= this.state.poisonDmg ?? 1;
       this.state.poisonTicks = (this.state.poisonTicks ?? 0) - 1;
-    }
-
-    if ((this.state.burningTicks ?? 0) > 0) {
-      this.state.hp -= BURN_DMG_PER_TICK;
     }
 
     // v2.5.0：濒死逃生追踪——跌破 20% 待报，回血过 60% 记「nadir」（剑谱素材：残血逆袭）
@@ -563,6 +568,8 @@ export class SwordAgent {
 
   /** 分裂 (繁衍) */
   private trySplit(): void {
+    // v2.7.1：满场无空位后冷却 50 tick 再试——避免每 tick 重复变异+克隆大脑（GC 无用功）
+    if (this.world.tickCounter < this.splitRetryUntil) return;
     const rate = this.world.mutationRate;
     const childGenome = mutateGenome(
       this.state.genome,
@@ -578,6 +585,8 @@ export class SwordAgent {
       this.state.energy = maxEnergyOf(this.state) / 2;
       // 事件日志：元素突变 / 新世代
       this.world.emitSplitEvents(this, childGenome, genomeChanged(this.state.genome, childGenome), placed);
+    } else {
+      this.splitRetryUntil = this.world.tickCounter + 50; // v2.7.1：无空位 → 冷却再试
     }
   }
 

@@ -82,6 +82,9 @@ export interface ChronicleEvent {
   };
 }
 
+/** v2.7.1：纪事事件上限（一局正常约 2 万条；超限丢最旧） */
+const MAX_CHRONICLE_EVENTS = 40000;
+
 export class Chronicle {
   private items: ChronicleEvent[] = [];
   private readonly tickOf: () => number;
@@ -94,7 +97,15 @@ export class Chronicle {
     kind: ChronicleEventKind,
     opts: { actorId?: string; targetId?: string; data?: ChronicleEvent['data'] } = {},
   ): void {
+    // v2.7.1：事件上限护栏——超限丢最旧（一局正常约 2 万条；护栏防无上限增长拖垮长局）
+    if (this.items.length >= MAX_CHRONICLE_EVENTS) this.items.shift();
     this.items.push({ kind, tick: this.tickOf(), ...opts });
+  }
+
+  /** v2.7.1：恢复已序列化事件（刷新续玩用；纯数据直赋，丢弃非法条目） */
+  restore(events: ChronicleEvent[]): void {
+    if (!Array.isArray(events)) return;
+    this.items = events.filter((e) => e && typeof e.kind === 'string' && typeof e.tick === 'number');
   }
 
   /** 全部事件（记录序即时间序） */

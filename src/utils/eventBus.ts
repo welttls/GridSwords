@@ -69,7 +69,8 @@ class EventBus {
       try {
         fn(payload);
       } catch (e) {
-        // 事件处理器异常不应中断主循环
+        // 事件处理器异常不应中断主循环；v2.7.1：但仍要留痕，否则渲染/音频崩溃无从排查
+        console.error('[eventBus] 事件处理器异常', evt, e);
       }
     });
   }

@@ -353,7 +353,9 @@ export class World {
     const { x: ox, y: oy } = agent.state.position;
     if (this.grid[oy][ox] === agent.state.id) this.grid[oy][ox] = null;
     this.grid[y][x] = agent.state.id;
-    agent.state.position = { x, y };
+    // v2.7.1：原地更新坐标，避免每次移动 new 一个 position 对象（高频小对象分配）
+    agent.state.position.x = x;
+    agent.state.position.y = y;
     // v2.3.0：踏入/瞬移至奇遇种子所在格 → 取得（剑心境界 +1）
     if (this.encounterSeed && this.encounterSeed.x === x && this.encounterSeed.y === y) {
       this.claimEncounterSeed(agent);
@@ -646,20 +648,25 @@ export class World {
     // 先落雷特效/音效（闪电劈下 + 范围雷暴），再结算伤害（击杀另有死亡粒子）
     eventBus.emit(EVT.THUNDER, { x, y, element });
     let killed = 0;
+    // v2.7.1：先收集待死剑意，再统一 die()——不在遍历 Map 时删除（更稳健，防未来改动踩迭代删除坑）
+    const victims: SwordAgent[] = [];
     for (const s of this.swords.values()) {
       const d = Math.abs(s.state.position.x - x) + Math.abs(s.state.position.y - y);
       if (d > 2) continue; // v2.4.0：范围雷暴——半径 2（曼哈顿）内剑意同受天雷
       s.state.hp -= TRIBULATION_LIGHTNING_DMG;
       s.state.energy -= TRIBULATION_LIGHTNING_ENERGY;
       if (s.state.hp <= 0 || s.state.energy <= 0) {
-        s.die('thunder');
-        killed++;
+        victims.push(s);
       } else {
         // 雷劫余生：历天雷而仍存续 → 标记个体经历（鉴定标签）
         s.state.survivedThunder = true;
         // v2.5.0：剑域纪事——雷劫余生
         this.chronicle.record('thunderSurvive', { actorId: s.state.id, data: { source: 'manual' } });
       }
+    }
+    for (const v of victims) {
+      v.die('thunder');
+      killed++;
     }
     return killed;
   }

@@ -104,6 +104,10 @@ export class Game {
   private lastReseedPromptDay = -1;
   private tickAccumulator = 0;
   private battleAccumulator = 0;
+  /** v2.7.1：进入布阵前的暂停态（退出时恢复，不吞玩家暂停意图） */
+  private formationWasPaused = false;
+  /** v2.7.1：打开剑潮/音律/炉材面板前的暂停态（关闭时恢复） */
+  private panelWasPaused = false;
 
   appraisedRanked: RankedSword | null = null;
   battlePlayerState: SwordState | null = null;
@@ -238,6 +242,12 @@ export class Game {
     this.host.classList.remove('forge-screen');
     this.leaveFormation(); // v2.3.0
     this.hideCanvas();
+    // v2.7.1：与 showMenu 一致——销毁渲染器/HUD/舞台残留，解绑旧订阅（防剑胚选择期间事件进旧 HUD）
+    this.renderer?.destroy?.();
+    this.renderer = null;
+    this.hud?.destroy?.();
+    this.hud = null;
+    for (const child of this.app.stage.removeChildren()) child.destroy();
     buildEmbryoSelect(this.host, this);
   }
 
@@ -399,6 +409,16 @@ export class Game {
         element: this.embryoGenome.element,
       });
     }
+    // v2.7.1：整体恢复血统链（含已陨落祖先）——隔代血亲判定/悟道树续档不裂
+    if (Array.isArray(this.save.lineage)) {
+      for (const [id, node] of this.save.lineage) {
+        if (!world.lineage.has(id)) world.lineage.set(id, node);
+      }
+    }
+    // v2.7.1：恢复剑域纪事（刷新续玩不丢前半局事件，成就/剑谱口径完整）
+    if (Array.isArray(this.save.chronicle)) {
+      world.chronicle.restore(this.save.chronicle);
+    }
     // P1-4：续档恢复生态状态 (边界/庚金/火墙/天劫开关)，避免剑域回春
     if (this.save.eco) world.restoreEcoState(this.save.eco);
     else world.spawnInitialFood(10);
@@ -532,6 +552,7 @@ export class Game {
     this.lightningArmed = false; // v2.3.0：进入布阵取消武装天雷，避免点击冲突
     this.seedArmed = false; // v2.6.0：进入布阵取消奇遇待放置
     this.formationMode = true;
+    this.formationWasPaused = this.paused; // v2.7.1：记住进入前暂停态
     this.paused = true;
     this.refreshHudControls();
     this.host.classList.add('forming');
@@ -546,7 +567,7 @@ export class Game {
     this.host.classList.remove('forming');
     this.hud?.setFormationMode(false, this.formationBrush, () => {}, () => {});
     if (this.scene === 'forge') {
-      this.paused = false;
+      this.paused = this.formationWasPaused; // v2.7.1：恢复进入前暂停态（不吞玩家暂停意图）
       this.refreshHudControls();
     }
   }
@@ -690,7 +711,17 @@ export class Game {
       grid.appendChild(card);
     }
     body.appendChild(grid);
-    const overlay = openModal('剑心 · 绝技', body, { width: 540 });
+    const overlay = openModal('剑心 · 绝技', body, {
+      width: 540,
+      // v2.7.1：点 ×/遮罩关闭 → 放弃本次候选并恢复走时，防「不选就永远重弹」死循环
+      onClose: () => {
+        agent.pendingMindPick = null;
+        if (this.scene === 'forge') {
+          this.paused = false;
+          this.refreshHudControls();
+        }
+      },
+    });
   }
 
   /** 涌现时选定代表剑意 (世代最深 / 存续最久) */
@@ -886,11 +917,12 @@ export class Game {
   /** 剑潮偏好面板 (v1.11.0)：随时修改本局剑潮选择/免弹窗，不立即投放 */
   openTidePanel(): void {
     if (this.scene !== 'forge') return;
+    this.panelWasPaused = this.paused; // v2.7.1：记住进入前暂停态
     this.paused = true;
     this.refreshHudControls();
     openTidePanel(this, () => {
       if (this.scene === 'forge') {
-        this.paused = false;
+        this.paused = this.panelWasPaused; // v2.7.1：恢复进入前暂停态
         this.refreshHudControls();
       }
     });
@@ -899,11 +931,12 @@ export class Game {
   /** v2.6.1：音律面板（背景乐/音效 开关+滑块合一）——暂停调音，关闭恢复走时 */
   private openAudioPanel(): void {
     if (this.scene !== 'forge') return;
+    this.panelWasPaused = this.paused; // v2.7.1：记住进入前暂停态
     this.paused = true;
     this.refreshHudControls();
     openAudioPanel(() => {
       if (this.scene === 'forge') {
-        this.paused = false;
+        this.paused = this.panelWasPaused; // v2.7.1：恢复进入前暂停态
         this.refreshHudControls();
       }
     });
@@ -921,11 +954,12 @@ export class Game {
 
   openFurnacePanel(): void {
     if (this.scene !== 'forge') return;
+    this.panelWasPaused = this.paused; // v2.7.1：记住进入前暂停态
     this.paused = true;
     this.refreshHudControls();
     openFurnacePanel(this, () => {
       if (this.scene === 'forge') {
-        this.paused = false;
+        this.paused = this.panelWasPaused; // v2.7.1：恢复进入前暂停态
         this.refreshHudControls();
       }
     });
@@ -1097,17 +1131,22 @@ export class Game {
     if (this.scene === 'forge' && this.world) {
       // 粒子始终推进 (暂停时也淡出，避免冻结残点)
       this.renderer?.updateParticles(dt);
-      this.renderer?.render(this.world, this.frame);
+      // v2.7.1：暂停且无活跃粒子/特效/飘字 → 跳过全量重绘（画面静止，省每帧数千条图形命令）
+      if (!this.paused || this.renderer?.hasActiveFx()) {
+        this.renderer?.render(this.world, this.frame);
+      }
       if (!this.paused) {
         const tps = TICKS_PER_SECOND * this.speed;
         this.tickAccumulator += dt;
         let budget = Math.floor(this.tickAccumulator * tps);
         if (budget > 0) {
-          this.tickAccumulator -= budget / tps;
+          // v2.7.1：先钳位再扣减——原「先扣后钳」会把超限 tick 静默吞掉
           budget = Math.min(budget, 120);
+          this.tickAccumulator -= budget / tps;
           for (let i = 0; i < budget; i++) {
             this.runTick();
-            if (this.tribulationEnded) break;
+            // v2.7.1：弹窗弹出（如每日剑潮）后不再在模态背后继续跑 tick
+            if (this.tribulationEnded || this.paused) break;
           }
         }
         // 本命血脉断绝：提示玩家是否重新种下剑胚
@@ -1176,8 +1215,9 @@ export class Game {
         this.battleAccumulator += dt;
         let budget = Math.floor(this.battleAccumulator * BATTLE_TPS);
         if (budget > 0) {
-          this.battleAccumulator -= budget / BATTLE_TPS;
+          // v2.7.1：先钳位再扣减（同 forge 分支）
           budget = Math.min(budget, 60);
+          this.battleAccumulator -= budget / BATTLE_TPS;
           for (let i = 0; i < budget; i++) {
             const events = this.battle.duel.step();
             this.battle.tick++;
@@ -1316,6 +1356,12 @@ export class Game {
       overlay.remove();
       this.showEmbryoSelect();
     });
+    // v2.7.1：败局弹窗期间清掉渲染器/HUD/舞台——不再后台满帧渲染（胜利路径 showAppraisal 早已销毁）
+    this.renderer?.destroy?.();
+    this.renderer = null;
+    this.hud?.destroy?.();
+    this.hud = null;
+    for (const child of this.app.stage.removeChildren()) child.destroy();
     const overlay = openModal('天劫之下 · 剑意尽灭', body, { width: 460, onClose: close });
   }
 
@@ -1430,7 +1476,8 @@ export class Game {
 
   finishAppraisal(name: string): void {
     const data = this.appraisalData;
-    if (!data) return;
+    // v2.7.1：防重入——非鉴定场景或已结算（appraisalData 置空）直接忽略
+    if (!data || this.scene !== 'appraisal') return;
     const winner = data.winner;
     const finalName = (name || '').trim() || '无名剑';
     // v2.5.0：以最终剑名定稿剑谱——世界仍在（炼成路径）→ 确定性重生成（仅名字不同）；
@@ -1475,6 +1522,7 @@ export class Game {
     this.appraisedRanked = ranked;
     this.battlePlayerState = playerState;
     this.battleStreak = 0; // v2.0.0：新剑入试剑台，连胜清零
+    this.appraisalData = null; // v2.7.1：结算完成即清，防重复触发重复累加统计
     this.showTournament();
 
     if (rank > 0 && rank <= 20) {
@@ -1790,7 +1838,9 @@ export class Game {
       materialCounts: this.save.materialCounts,
       feedDropped: this.save.feedDropped,
       formation: this.save.formation, // v2.3.0：布阵次数
-      swords: this.world
+      dailyDropKind: this.save.dailyDropKind, // v2.7.1：补导出（原漏同步→刷新丢剑潮偏好）
+      dailyDropLocked: this.save.dailyDropLocked, // v2.7.1
+      swords: this.world && this.scene === 'forge'
         ? [...this.world.swords.values()].map((a) => ({
             ...a.state,
             // v1.12.0：从活 brain 取权重（剑心扩容后 state 快照可能过期）
@@ -1798,10 +1848,14 @@ export class Game {
             brainBiases: a.brain.getBiases(),
             behavior: a.behavior,
           }))
-        : [],
+        : [], // v2.7.1：非炼剑场景不再序列化整场剑意（返回主菜单时避免孤儿数据入档）
       rootId: this.world?.rootId ?? null,
       maxGeneration: this.world?.maxGeneration ?? 1,
       eco: this.world ? this.world.exportEcoState() : null,
+      // v2.7.1：血统链随档保存（隔代祖先陨落后，续档血亲判定/悟道树不再断裂）
+      lineage: this.world ? [...this.world.lineage.entries()] : [],
+      // v2.7.1：剑域纪事随档保存（刷新续玩不丢前半局事件）
+      chronicle: this.world ? this.world.chronicle.all().slice() : [],
       pendingScene: this.save.pendingScene,
       pendingAppraisal: this.save.pendingAppraisal,
       pendingBattlePlayerState: this.save.pendingBattlePlayerState,
@@ -1809,7 +1863,9 @@ export class Game {
   }
 
   saveGame(): void {
-    SaveManager.save(this.exportSave());
+    const ok = SaveManager.save(this.exportSave());
+    // v2.7.1：写入失败（存储已满/隐私模式）明确提示，防玩家不知情丢进度
+    if (!ok) toast('⚠️ 存档写入失败——浏览器存储已满或不可用，进度可能无法保留');
   }
 
   // ================= Canvas =================

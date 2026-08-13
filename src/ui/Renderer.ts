@@ -12,14 +12,16 @@ const LAVA_COLOR = 0xff4a12;      // v2.3.0：熔岩
 const DEEPWATER_COLOR = 0x1a5a9a; // v2.3.0：深水
 const MAX_PARTICLES = 500;
 
-/** 单个粒子 */
+/** 单个粒子 (v2.7.1：不再每粒一个 Graphics——共享 pg 每帧重绘，数百粒子仅 1 draw call) */
 interface Particle {
-  g: Graphics;
+  x: number;
+  y: number;
   vx: number;
   vy: number;
   life: number;
   maxLife: number;
-  baseR: number;
+  color: number;
+  size: number;
 }
 
 /** 飘字 (技能名/回春等，上浮淡出) */
@@ -60,6 +62,8 @@ export class WorldRenderer {
   private g: Graphics;
   private eg: Graphics;
   private bg: Graphics;
+  /** v2.7.1：粒子共享画布（每帧重绘全部粒子） */
+  private pg: Graphics;
   private cell: number;
   private width: number;
   private height: number;
@@ -88,9 +92,11 @@ export class WorldRenderer {
     this.bg = new Graphics();
     this.g = new Graphics();
     this.eg = new Graphics();
+    this.pg = new Graphics();
     this.particleLayer = new Container();
     this.effectLayer = new Container();
     this.effectLayer.addChild(this.eg);
+    this.particleLayer.addChild(this.pg);
     container.addChild(this.bg, this.g, this.particleLayer, this.effectLayer);
     this.bg.beginFill(0x0c1017);
     this.bg.drawRect(0, 0, width * cell, height * cell);
@@ -112,12 +118,9 @@ export class WorldRenderer {
     eventBus.off(EVT.EAT, this.hEat);
     eventBus.off(EVT.THUNDER, this.hThunder);
     eventBus.off(EVT.SKILL, this.hSkill);
-    // 清理残留粒子 (v2.2.1：Graphics 显式 destroy 释放 GPU 资源)
-    for (const p of this.particles) {
-      this.particleLayer.removeChild(p.g);
-      p.g.destroy();
-    }
+    // 清理残留粒子 (v2.7.1：共享 Graphics 整体销毁即可)
     this.particles.length = 0;
+    this.pg.destroy();
     // 清理飘字 (Pixi Text 需显式 destroy 防泄漏)
     for (const f of this.floatTexts) {
       this.effectLayer.removeChild(f.t);
@@ -136,26 +139,39 @@ export class WorldRenderer {
     this.selectedId = id;
   }
 
-  /** 每帧推进粒子 (dt 秒) */
+  /** 每帧推进粒子 (dt 秒)，随后重绘到共享 pg */
   updateParticles(dt: number): void {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life -= dt;
       if (p.life <= 0) {
-        this.particleLayer.removeChild(p.g);
-        p.g.destroy(); // v2.2.1：显式 destroy 释放 GPU 资源
         this.particles.splice(i, 1);
         continue;
       }
-      p.g.x += p.vx * dt;
-      p.g.y += p.vy * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
       p.vx *= 0.92;
       p.vy *= 0.92;
-      const t = p.life / p.maxLife;
-      p.g.alpha = Math.min(1, t * 1.4);
-      p.g.scale.set(Math.max(0.05, t));
     }
+    this.drawParticles();
     this.updateEffects(dt);
+  }
+
+  /** v2.7.1：全部粒子一次绘入共享 pg（数百粒子 → 单 draw call，兼做淡出/缩放） */
+  private drawParticles(): void {
+    const pg = this.pg;
+    pg.clear();
+    for (const p of this.particles) {
+      const t = p.life / p.maxLife;
+      pg.beginFill(p.color, Math.min(1, t * 1.4));
+      pg.drawCircle(p.x, p.y, Math.max(0.05, t) * p.size);
+      pg.endFill();
+    }
+  }
+
+  /** v2.7.1：是否有活跃粒子/特效/飘字（供暂停时跳过全量重绘判定） */
+  hasActiveFx(): boolean {
+    return this.particles.length > 0 || this.effects.length > 0 || this.floatTexts.length > 0;
   }
 
   private spawnBurst(x: number, y: number, color: number, count: number, speed: number, size: number, life: number): void {
@@ -163,16 +179,9 @@ export class WorldRenderer {
     const cy = (y + 0.5) * this.cell;
     for (let i = 0; i < count; i++) {
       if (this.particles.length >= MAX_PARTICLES) break;
-      const g = new Graphics();
-      g.beginFill(color, 1);
-      g.drawCircle(0, 0, size);
-      g.endFill();
-      g.x = cx;
-      g.y = cy;
       const ang = Math.random() * Math.PI * 2;
       const sp = speed * (0.3 + Math.random() * 0.9);
-      this.particleLayer.addChild(g);
-      this.particles.push({ g, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, maxLife: life, baseR: size });
+      this.particles.push({ x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, maxLife: life, color, size });
     }
   }
 

@@ -1,5 +1,6 @@
 import type { Element, Genome, RankedSword, SwordState, SwordTaleData } from '../types';
-import type { World } from '../simulation/World'; // v2.2.1：type-only——GameSave.eco 与 exportEcoState 类型联动（含 wallExpiry）
+import type { World, LineageNode } from '../simulation/World'; // v2.2.1：type-only——GameSave.eco 与 exportEcoState 类型联动（含 wallExpiry）
+import type { ChronicleEvent } from '../simulation/Chronicle'; // v2.7.1：纪事事件随档保存
 import { SAVE_KEY } from '../constants';
 
 /** 鉴定阶段持久化数据 (刷新后可重建「剑成鉴定」界面) */
@@ -76,6 +77,10 @@ export interface GameSave {
   maxGeneration: number;
   /** 生态状态 (边界/庚金/火墙/天劫开关，续档恢复用) */
   eco?: ReturnType<World['exportEcoState']> | null;
+  /** v2.7.1：血统链（含已陨落祖先——隔代血亲判定/悟道树续档不裂） */
+  lineage?: [string, LineageNode][] | null;
+  /** v2.7.1：剑域纪事事件（刷新续玩不丢前半局，成就/剑谱口径完整） */
+  chronicle?: ChronicleEvent[] | null;
   // —— 中断续玩：记录当前所处阶段 (鉴定/大比，刷新后可回到原界面) ——
   pendingScene: 'appraisal' | 'tournament' | null;
   pendingAppraisal?: PendingAppraisal | null;
@@ -107,6 +112,8 @@ export function defaultSave(): GameSave {
     rootId: null,
     maxGeneration: 1,
     eco: null,
+    lineage: [], // v2.7.1
+    chronicle: [], // v2.7.1
     pendingScene: null,
     pendingAppraisal: null,
     pendingBattlePlayerState: null,
@@ -118,11 +125,27 @@ export class SaveManager {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return defaultSave();
-      const parsed = JSON.parse(raw) as GameSave;
+      let parsed: GameSave;
+      try {
+        parsed = JSON.parse(raw) as GameSave;
+      } catch {
+        // v2.7.1：解析失败不再静默丢档——备份损坏原文到旁路 key，便于事后恢复/排查
+        try {
+          localStorage.setItem(SAVE_KEY + '-corrupt', raw);
+        } catch {
+          /* ignore */
+        }
+        return defaultSave();
+      }
       if (!parsed || typeof parsed.version !== 'number') return defaultSave();
       // v2.2.1：未知高版本存档不整档静默丢弃——保留数据按当前结构兼容读取（缺失字段由 defaultSave 兜底）
       if (parsed.version > 1) console.warn('[炼剑] 检测到更高版本存档 (v' + parsed.version + ')，按当前版本兼容读取，部分新字段可能缺失。');
       const save = { ...defaultSave(), ...parsed };
+      // v2.7.1：结构校验——损坏/手改存档不整档崩溃（此前 history 非数组 → .length/.filter 直接 TypeError）
+      if (!Array.isArray(save.history)) save.history = [];
+      if (!Array.isArray(save.unlockedMaterialIds)) save.unlockedMaterialIds = [];
+      if (!Array.isArray(save.lineage)) save.lineage = [];
+      if (!Array.isArray(save.chronicle)) save.chronicle = [];
       // v2.4.0：初始炉材迁移——起始解锁材料缺则补（天雷改初始拥有，兼容旧档；否则老玩家用不了）；v2.5.1 补奇遇灵种
       const START_UNLOCKED = ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion', 'encounter_seed'];
       for (const id of START_UNLOCKED) {
@@ -161,11 +184,14 @@ export class SaveManager {
     }
   }
 
-  static save(save: GameSave): void {
+  static save(save: GameSave): boolean {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+      return true;
     } catch {
-      // 存储已满或不可用，忽略
+      // v2.7.1：写入失败（存储已满/隐私模式）返回 false，由调用方提示玩家（原静默忽略 → 玩家不知情丢进度）
+      console.warn('[炼剑] 存档写入失败（localStorage 存储已满或不可用）');
+      return false;
     }
   }
 

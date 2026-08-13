@@ -54,6 +54,23 @@ export class SimpleNN {
   }
 
   setFromFlat(weights: number[], biases: number[]): void {
+    // v2.7.1：长度校验——旧档/境界与权重不匹配时静默变 NaN 脑（剑变傻子），改为重建随机权重
+    let expectedW = 0;
+    let expectedB = 0;
+    for (let l = 0; l < this.sizes.length - 1; l++) {
+      expectedW += this.sizes[l] * this.sizes[l + 1];
+      expectedB += this.sizes[l + 1];
+    }
+    if ((weights?.length ?? 0) < expectedW || (biases?.length ?? 0) < expectedB) {
+      console.warn('[炼剑] 剑心权重长度不符，已重建随机权重');
+      for (let l = 0; l < this.sizes.length - 1; l++) {
+        const n = this.sizes[l] * this.sizes[l + 1];
+        const cols = this.sizes[l + 1];
+        this.weights[l] = Array.from({ length: n }, () => (Math.random() * 2 - 1) * 0.3);
+        this.biases[l] = Array.from({ length: cols }, () => (Math.random() * 2 - 1) * 0.2);
+      }
+      return;
+    }
     let wi = 0;
     let bi = 0;
     for (let l = 0; l < this.sizes.length - 1; l++) {

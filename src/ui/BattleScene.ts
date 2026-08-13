@@ -508,6 +508,8 @@ export function buildTournament(
         const line = el('div', 'duel-log-line ' + e.kind + (e.actor === 'player' ? ' from-player' : ' from-npc'));
         line.textContent = e.text;
         logBox.appendChild(line);
+        // v2.7.1：大比日志上限 200 行（与 HUD 一致），防「再战」反复打 DOM 无限增长
+        while (logBox.children.length > 200) logBox.firstElementChild?.remove();
         logBox.scrollTop = logBox.scrollHeight;
 
         // 招式动画：大字 + 前冲 + 碰撞粒子 + 技能专属特效
