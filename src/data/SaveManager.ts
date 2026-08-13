@@ -85,7 +85,7 @@ export interface GameSave {
 export function defaultSave(): GameSave {
   return {
     version: 1,
-    // v2.4.0：雷劫液改初始拥有（手动天雷直接解锁）；v2.5.1：奇遇灵种改初始拥有（布阵种奇遇）
+    // v2.4.0：天雷改初始拥有（手动天雷直接解锁）；v2.5.1：奇遇灵种改初始拥有（炉材种奇遇）
     unlockedMaterialIds: ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion', 'encounter_seed'],
     history: [],
     bestScore: 0,
@@ -123,7 +123,7 @@ export class SaveManager {
       // v2.2.1：未知高版本存档不整档静默丢弃——保留数据按当前结构兼容读取（缺失字段由 defaultSave 兜底）
       if (parsed.version > 1) console.warn('[炼剑] 检测到更高版本存档 (v' + parsed.version + ')，按当前版本兼容读取，部分新字段可能缺失。');
       const save = { ...defaultSave(), ...parsed };
-      // v2.4.0：初始炉材迁移——起始解锁材料缺则补（雷劫液改初始拥有，兼容旧档；否则老玩家用不了）；v2.5.1 补奇遇灵种
+      // v2.4.0：初始炉材迁移——起始解锁材料缺则补（天雷改初始拥有，兼容旧档；否则老玩家用不了）；v2.5.1 补奇遇灵种
       const START_UNLOCKED = ['cold_iron', 'rootless_water', 'wind_talisman', 'thunder_potion', 'encounter_seed'];
       for (const id of START_UNLOCKED) {
         if (!save.unlockedMaterialIds.includes(id)) save.unlockedMaterialIds.push(id);

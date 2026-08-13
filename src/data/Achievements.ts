@@ -79,7 +79,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: 'god_of_thunder',
     name: '雷神降世',
-    desc: '一局之内，以雷劫液引落天雷击杀十敌。',
+    desc: '一局之内，以「天雷」引落雷霆击杀十敌。',
     category: 'operation',
     evaluate: (ctx) => {
       const r = c(ctx);

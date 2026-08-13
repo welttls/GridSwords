@@ -40,7 +40,7 @@ export interface SwordState {
   reflectTicks?: number;
   immuneCCTicks?: number;    // 免控：免疫定身/击退/减速（磐石护）
   flameArmorTicks?: number;  // 烈焰甲：攻击命中附灼烧
-  /** 经历天雷 (雷劫液) 而存续：鉴定「雷劫余生」标签判定 (v1.9.1) */
+  /** 经历天雷而存续：鉴定「雷劫余生」标签判定 (v1.9.1) */
   survivedThunder?: boolean;
   /** 剑心境界 (0=凡心 1=通明 2=洞玄 3=忘我；决定 NN 隐藏层容量与境界加成，v1.12.0) */
   mindRealm?: number;

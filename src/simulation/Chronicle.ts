@@ -56,7 +56,7 @@ export interface ChronicleEvent {
     cause?: DeathCause;
     /** 是否血亲相残（天劫期） */
     kin?: boolean;
-    /** 天雷来源：手动雷劫液 / 天劫落雷 */
+    /** 天雷来源：手动天雷 / 天劫落雷 */
     source?: 'manual' | 'tribulation';
     /** promotion：晋境来源 */
     promoVia?: 'slaughter' | 'fortune';

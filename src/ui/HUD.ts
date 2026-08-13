@@ -4,7 +4,6 @@ import { MAX_DAYS, SHICHEN_NAMES, TICKS_PER_SHICHEN } from '../constants';
 import { ELEMENT_COLOR, ELEMENT_LABEL } from '../simulation/Genetics';
 import { el, clearNode } from '../utils/dom';
 import { eventBus, EVT, type LogMessage } from '../utils/eventBus';
-import { audio } from '../audio/AudioManager';
 import { toast } from './modals';
 
 const GENES = [
@@ -14,21 +13,15 @@ const GENES = [
   { key: 'perception', label: '感知', color: '#d48aff' },
 ] as const;
 
-/** v2.3.0：布阵笔刷类型 */
-export type FormationBrush = 'lava' | 'deepwater' | 'clear' | 'seed';
-export const FORMATION_BRUSHES: FormationBrush[] = ['lava', 'deepwater', 'clear', 'seed'];
-
-/** v2.3.0：布阵剩余次数（熔岩/深水无限，仅奇遇种子计次） */
-export interface FormationState {
-  seed: number;
-}
+/** v2.3.0：布阵笔刷类型（v2.6.0 起纯地形编辑——奇遇改由炉材「奇遇灵种」直接选位种下） */
+export type FormationBrush = 'lava' | 'deepwater' | 'clear';
+export const FORMATION_BRUSHES: FormationBrush[] = ['lava', 'deepwater', 'clear'];
 
 /** v2.3.0：布阵笔刷悬浮说明 */
 export const FORMATION_TIPS: Record<FormationBrush, string> = {
   lava: '布置熔岩：剑意一步踏入即剑体崩解（一击必杀）；瞬移可渡；不限次数',
   deepwater: '布置深水：剑意减速且耗神，水行免疫；不限次数',
   clear: '恢复地形：一次清除 3×3 范围内熔岩/深水，还原为平地（不限次数）',
-  seed: '种下奇遇种子：被剑意取得者剑心境界 +1；可自行选择是否封锁',
 };
 
 /**
@@ -48,8 +41,8 @@ export class HUD {
   private tideBtn!: HTMLButtonElement;
   private reseedBtn!: HTMLButtonElement;
   private formationBtn!: HTMLButtonElement;
-  private musicBtn!: HTMLButtonElement;
-  private sfxBtn!: HTMLButtonElement;
+  /** v2.6.1：音律按钮（背景乐/音效 开关+滑块合一，由 Game 接线） */
+  private soundBtn!: HTMLButtonElement;
   /** v2.3.0：布阵工具栏 */
   private formationBar!: HTMLElement;
   private formationBrushBtns!: Record<FormationBrush, HTMLButtonElement>;
@@ -193,45 +186,34 @@ export class HUD {
     panel.append(histWrap, logWrap);
 
     // 底栏：布霖 + 炉材 + 布阵 + 剑潮 + 重种本命 (v1.11.0 / v2.3.0)
+    // v2.6.0：全部底栏按钮加悬浮解释（复用 .tip[data-tip] 全局委托浮窗）
     const footer = el('div', 'forge-footer');
-    const feedBtn = el('button', 'btn btn-ghost', '布霖') as HTMLButtonElement;
+    const feedBtn = el('button', 'btn btn-ghost tip', '布霖') as HTMLButtonElement;
     feedBtn.id = 'feed-btn';
+    feedBtn.dataset.tip = '布霖庚金之气：在剑域随机落下 3 团庚金（每日 12 团配额，随时可施）。剑意采食回能、积满分化。';
     this.feedBtn = feedBtn;
-    const materialBtn = el('button', 'btn btn-gold', '炉材') as HTMLButtonElement;
+    const materialBtn = el('button', 'btn btn-gold tip', '炉材') as HTMLButtonElement;
     materialBtn.id = 'material-btn';
+    materialBtn.dataset.tip = '炉府材料：以次数使用，永久改变剑域气象（庚金生成、身法、节气、突变偏向、天雷、奇遇灵种等）。';
     this.materialBtn = materialBtn;
-    const formationBtn = el('button', 'btn btn-ghost', '布阵') as HTMLButtonElement;
+    const formationBtn = el('button', 'btn btn-ghost tip', '布阵') as HTMLButtonElement;
     formationBtn.id = 'formation-btn';
+    formationBtn.dataset.tip = '剑域布阵：暂停走时编辑地形——熔岩（踏入即崩解）、深水（减速耗神）、恢复（清除地形），均不限次数。';
     this.formationBtn = formationBtn;
-    const tideBtn = el('button', 'btn btn-ghost', '剑潮') as HTMLButtonElement;
+    const tideBtn = el('button', 'btn btn-ghost tip', '剑潮') as HTMLButtonElement;
     tideBtn.id = 'tide-btn';
+    tideBtn.dataset.tip = '剑潮偏好：调整每日子时投放的游离剑意类型，下次子时生效。';
     this.tideBtn = tideBtn;
-    const reseedBtn = el('button', 'btn btn-ghost', '重种本命') as HTMLButtonElement;
+    const reseedBtn = el('button', 'btn btn-ghost tip', '重种本命') as HTMLButtonElement;
     reseedBtn.id = 'reseed-btn';
+    reseedBtn.dataset.tip = '重种本命：本命血脉断绝后，重新种下一柄剑胚（可自选五行）。';
     this.reseedBtn = reseedBtn;
-    // 音频开关（音乐 / 音效）
-    const musicBtn = el('button', 'btn btn-ghost btn-sound', '🎵') as HTMLButtonElement;
-    musicBtn.title = audio.getMusicEnabled() ? '音乐：开' : '音乐：关';
-    musicBtn.classList.toggle('dimmed', !audio.getMusicEnabled());
-    musicBtn.addEventListener('click', () => {
-      const on = !audio.getMusicEnabled();
-      audio.setMusicEnabled(on);
-      musicBtn.classList.toggle('dimmed', !on);
-      musicBtn.title = on ? '音乐：开' : '音乐：关';
-    });
-    this.musicBtn = musicBtn;
-    const sfxBtn = el('button', 'btn btn-ghost btn-sound', '🔊') as HTMLButtonElement;
-    sfxBtn.title = audio.getSfxEnabled() ? '音效：开' : '音效：关';
-    sfxBtn.classList.toggle('dimmed', !audio.getSfxEnabled());
-    sfxBtn.addEventListener('click', () => {
-      const on = !audio.getSfxEnabled();
-      audio.setSfxEnabled(on);
-      sfxBtn.classList.toggle('dimmed', !on);
-      sfxBtn.title = on ? '音效：开' : '音效：关';
-    });
-    this.sfxBtn = sfxBtn;
+    // 音律（v2.6.1：背景乐/音效 开关+滑块合一面板，与主菜单/大比共用；由 Game 接线暂停走时）
+    const soundBtn = el('button', 'btn btn-ghost tip', '音律') as HTMLButtonElement;
+    soundBtn.dataset.tip = '音律：背景乐与音效的开关、音量滑块——两个同在一处调节。';
+    this.soundBtn = soundBtn;
     const hint = el('span', 'hint', '布霖随时可施 · 炉材以次数计');
-    footer.append(feedBtn, materialBtn, formationBtn, tideBtn, reseedBtn, musicBtn, sfxBtn, hint);
+    footer.append(feedBtn, materialBtn, formationBtn, tideBtn, reseedBtn, soundBtn, hint);
 
     main.append(canvasHost, panel);
     this.host.append(main, footer);
@@ -272,7 +254,9 @@ export class HUD {
     this.dayEl.textContent = `第 ${day} / ${MAX_DAYS} 日`;
     this.popEl.textContent = `${world.swords.size}`;
     const dayTick = world.tickCounter % world.config.dayTickLimit;
-    const si = Math.floor(dayTick / TICKS_PER_SHICHEN);
+    let si = Math.floor(dayTick / TICKS_PER_SHICHEN);
+    // v2.6.0：天劫超时（越过第 10 日）不再回绕时辰，固定显示亥时（与剑谱 dayShichen 一致）
+    if (world.tickCounter >= MAX_DAYS * world.config.dayTickLimit) si = SHICHEN_NAMES.length - 1;
     const ke = Math.floor((dayTick % TICKS_PER_SHICHEN) / 10); // 每刻 10 tick
     const shichen = SHICHEN_NAMES[Math.min(SHICHEN_NAMES.length - 1, si)];
     this.tickEl.textContent = `${shichen}时${ke}刻`;
@@ -377,19 +361,24 @@ export class HUD {
     this.reseedBtn.addEventListener('click', fn);
   }
 
+  /** v2.6.1：音律按钮（由 Game 接线打开共享音律面板） */
+  onAudioClick(fn: () => void): void {
+    this.soundBtn.addEventListener('click', fn);
+  }
+
   /** v2.3.0：布阵按钮 */
   onFormationClick(fn: () => void): void {
     this.formationBtn.addEventListener('click', fn);
   }
 
-  /** v2.3.0：进入/退出布阵模式（显示/隐藏工具栏 + 高亮按钮） */
-  setFormationMode(active: boolean, state: FormationState, activeBrush: FormationBrush, onBrush: (b: FormationBrush) => void, onExit: () => void): void {
+  /** v2.3.0：进入/退出布阵模式（显示/隐藏工具栏 + 高亮按钮；v2.6.0 起无布阵次数） */
+  setFormationMode(active: boolean, activeBrush: FormationBrush, onBrush: (b: FormationBrush) => void, onExit: () => void): void {
     this.formationOnBrush = onBrush;
     this.formationOnExit = onExit;
     this.formationBar.classList.toggle('hidden', !active);
     this.formationBtn.classList.toggle('active', !!active);
     this.formationBtn.textContent = active ? '布阵中' : '布阵';
-    if (active) this.updateFormation(state, activeBrush);
+    if (active) this.updateFormation(activeBrush);
     if (!this.formationHooked) {
       this.formationHooked = true;
       for (const b of FORMATION_BRUSHES) {
@@ -399,20 +388,17 @@ export class HUD {
     }
   }
 
-  /** v2.3.0：刷新布阵工具栏（奇遇种子次数 + 当前笔刷高亮；熔岩/深水/恢复不限） */
-  updateFormation(state: FormationState, activeBrush: FormationBrush): void {
+  /** v2.3.0：刷新布阵工具栏（当前笔刷高亮；熔岩/深水/恢复均不限次） */
+  updateFormation(activeBrush: FormationBrush): void {
     const labels: Record<FormationBrush, string> = {
       lava: '🔥 熔岩',
       deepwater: '🌊 深水',
       clear: '🧹 恢复',
-      seed: `🌱 奇遇 ×${Math.max(0, state.seed)}`,
     };
     for (const b of FORMATION_BRUSHES) {
       const btn = this.formationBrushBtns[b];
       btn.textContent = labels[b];
       btn.classList.toggle('active', b === activeBrush);
-      const exhausted = b === 'seed' && state.seed <= 0;
-      btn.classList.toggle('dimmed', exhausted);
     }
   }
 }

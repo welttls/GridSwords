@@ -15,34 +15,78 @@ export const DROP_OPTIONS: { kind: DailyDropKind; name: string; desc: string }[]
 
 /**
  * 炉府材料面板：道具次数使用，随时可用，改变整个炼剑炉的属性。
+ * v2.6.0：顶部展示「当前剑域气象」——已生效的修正一目了然（不再抽象）。
  */
 export function openFurnacePanel(game: Game, onClose?: () => void): void {
   const unlocked = new Set(game.save.unlockedMaterialIds);
   const counts = game.save.materialCounts;
   const body = el('div', 'material-list');
 
+  // —— v2.6.0：当前剑域气象（已生效修正 + 已投入炉材） ——
+  const aura = buildMaterialAura(game);
+  if (aura.length > 0) {
+    const auraBox = el('div', 'material-aura');
+    auraBox.appendChild(el('div', 'material-aura-title', '当前剑域气象'));
+    for (const l of aura) auraBox.appendChild(el('div', 'material-aura-line', l));
+    body.appendChild(auraBox);
+  }
+
+  // 本局各炉材已用次数（来自剑域纪事 material 事件）
+  const usedMap = new Map<string, number>();
+  if (game.world) {
+    for (const e of game.world.chronicle.all()) {
+      if (e.kind === 'material' && e.data?.id) usedMap.set(e.data.id, (usedMap.get(e.data.id) ?? 0) + 1);
+    }
+  }
+
   for (const m of recipesSorted()) {
     // P1-13：缺键回退 0 而非 m.count，与实际消耗口径 (materialCounts[id] ?? 0) 保持一致
     const remaining = unlocked.has(m.id) ? counts[m.id] ?? 0 : 0;
+    const used = usedMap.get(m.id) ?? 0;
     const card = el('div', 'material-card' + (remaining <= 0 ? ' locked' : ''));
     const name = el('div', 'material-name', `${m.name} ×${remaining}`);
     const desc = el('div', 'material-desc', m.description);
+    const meta = el('div', 'material-meta', used > 0 ? `本局已用 ${used} 次` : '');
     if (remaining > 0) {
-      card.append(name, desc);
+      card.append(name, desc, meta);
       card.addEventListener('click', () => {
         overlay.remove();
         game.applyMaterial(m.id);
         onClose?.();
       });
     } else if (unlocked.has(m.id)) {
-      card.append(name, el('div', 'material-lock', '已耗尽'));
+      card.append(name, desc, meta, el('div', 'material-lock', '已耗尽'));
     } else {
-      card.append(name, el('div', 'material-lock', `🔒 ${unlockLabel(m.unlock)} 解锁`));
+      card.append(name, desc, el('div', 'material-lock', `🔒 ${unlockLabel(m.unlock)} 解锁`));
     }
     body.appendChild(card);
   }
 
-  const overlay = openModal('炉府材料 · 以次数计', body, { width: 560, onClose });
+  const overlay = openModal('炉府材料 · 次数制', body, { width: 560, onClose });
+}
+
+/** v2.6.0：当前剑域气象文案（读 World.modifiers + 天雷今日剩余） */
+function buildMaterialAura(game: Game): string[] {
+  const w = game.world;
+  const lines: string[] = [];
+  if (!w) return lines;
+  const m = w.modifiers;
+  if (m.foodRegenMult !== 1) lines.push(`庚金生成 ×${m.foodRegenMult.toFixed(1)}（+${Math.round((m.foodRegenMult - 1) * 100)}%）`);
+  if (m.speedBonus > 0) lines.push(`全体剑意身法 +${m.speedBonus}`);
+  if (m.temperature !== 'normal') lines.push(`节气：${m.temperature === 'breeze' ? '清风·灵力消耗降低' : '严寒'}`);
+  if (m.mutationBias) {
+    const stat = m.mutationBias.stat === 'speed' ? '速度' : '坚固';
+    lines.push(m.mutationBias.sideEffect === 'speedDown'
+      ? `分化突变：${stat} ×${m.mutationBias.rateMult}·速度突变下降`
+      : `分化突变：${stat} ×${m.mutationBias.rateMult}`);
+  }
+  if (m.aggressionBonus > 0) lines.push(`剑意杀性 +${m.aggressionBonus}`);
+  // v2.6.0：天雷每日 5 次（今日剩余）
+  if (game.save.unlockedMaterialIds.includes('thunder_potion')) {
+    const left = game.save.materialCounts['thunder_potion'] ?? 0;
+    lines.push(`天雷：今日可引 ${left}/5 次（每日子时恢复）`);
+  }
+  return lines;
 }
 
 /** 弹窗超时秒数：未操作则自动沿用上次选择 / 首日静待天时 (v1.10.0) */
@@ -79,7 +123,8 @@ function buildTideChooser(
   lockBox.checked = !!game.save.dailyDropLocked;
   lockRow.append(lockBox, el('span', '', '本局一直用此选择，不再弹窗'));
   body.appendChild(lockRow);
-  const auto = el('button', 'btn btn-ghost' + (lastKind === 'auto' ? ' selected' : ''), '默许天意');
+  const auto = el('button', 'btn btn-ghost tip' + (lastKind === 'auto' ? ' selected' : ''), '默许天意');
+  auto.dataset.tip = '默许天意：不择而择，听凭剑潮自行起落（温养/汹涌/凶潮随机三分）。';
   auto.addEventListener('click', () => onChoose('auto'));
   body.appendChild(auto);
   return { body, lockBox };

@@ -2,13 +2,13 @@ import { el } from '../utils/dom';
 import { openModal } from './modals';
 import { audio } from '../audio/AudioManager';
 
-/** 音律设置面板：背景乐/音效 开关 + 音量滑块（v2.3.1，主菜单/宗门大比共用） */
-export function openAudioPanel(): void {
+/** 音律设置面板：背景乐/音效 开关 + 音量滑块（v2.3.1，主菜单/宗门大比/炼剑界面共用） */
+export function openAudioPanel(onClose?: () => void): void {
   const body = el('div', 'audio-panel');
   body.appendChild(el('p', 'audio-hint', '调节音量，亦可单独静音背景乐或音效。'));
   body.appendChild(buildAudioRow('背景乐', true, '🎵'));
   body.appendChild(buildAudioRow('音效', false, '🔊'));
-  openModal('音 律', body, { width: 420 });
+  openModal('音 律', body, { width: 420, onClose });
 }
 
 function buildAudioRow(label: string, isMusic: boolean, icon: string): HTMLElement {

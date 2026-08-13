@@ -45,8 +45,14 @@ function pick<T>(pool: readonly T[], rng: () => number): T {
 
 // ================= 时间换算 =================
 function dayShichen(tick: number): { day: number; shichen: number } {
+  const rawDay = Math.floor(tick / TICKS_PER_DAY) + 1;
+  if (rawDay > MAX_DAYS) {
+    // v2.6.0：天劫可越过第 10 日边界（超时兑底）——超界一律记作「第10日·亥时」，
+    // 否则时辰回绕会出现「寅时排在卯时之后」的乱序、以及同一时辰重复的假象
+    return { day: MAX_DAYS, shichen: SHICHEN_NAMES.length - 1 };
+  }
   return {
-    day: Math.min(MAX_DAYS, Math.floor(tick / TICKS_PER_DAY) + 1),
+    day: rawDay,
     shichen: Math.floor((tick % TICKS_PER_DAY) / TICKS_PER_SHICHEN),
   };
 }
@@ -74,69 +80,39 @@ function realmName(realm?: number): string {
 }
 
 // ================= 出身（prologue） =================
-const PROLOGUE_BY_VIA: Record<string, string[]> = {
-  seed: [
-    '剑胚初落，{el}入体，一缕灵光自剑域中心升起。',
-    '凡铁初生，{el}胎息流转，自此踏上了剑修之路。',
-    '{el}行剑胚落入剑域，凡铁自此而始。',
-  ],
-  reseed: [
-    '本命血脉既绝，尔后重种一道{el}行剑胚，再续凡铁。',
-    '旧脉已断，新芽复生——{el}行剑胚重新种下。',
-  ],
-  split: [
-    '由母剑分化而出，第{gen}代{el}行剑子，血脉延续。',
-    '母剑灵机充盈，分化得第{gen}代{el}行剑子。',
-  ],
-  tide: [
-    '剑潮汹涌之际，一道{el}行游离剑意落于剑域。',
-    '随剑潮而来，{el}行外来剑意自此寄身剑域。',
-  ],
-  parasite: [
-    '以寄灵之术化敌为剑子——{el}行剑意归于本命血脉。',
-    '寄灵噬魂，夺敌灵机，{el}行剑子由此而生。',
-  ],
-};
-
+/** v2.6.0：纯剑生平——只述本剑的出生（时辰/第几代/五行/途径）+ 一生要览（击破/绝技/词条/剑心），与玩家操作无关 */
 function buildPrologue(ctx: TaleCtx): string {
   const { champion, world } = ctx;
   const birth = world.chronicle.all().find((e) => e.kind === 'birth' && e.actorId === champion.id);
   const el = elementLabel(champion.genome.element);
-  const rng = ctx.rng;
-  let head = '';
-  if (birth?.data?.via) {
-    const pool = PROLOGUE_BY_VIA[birth.data.via] ?? PROLOGUE_BY_VIA.tide;
-    head = pick(pool, rng)
-      .replace('{el}', el)
-      .replace('{gen}', String(birth.data.generation ?? champion.generation));
+  let head: string;
+  if (birth) {
+    const t = dayShichen(birth.tick);
+    const gen = birth.data?.generation ?? champion.generation;
+    const timeStr = `第${t.day}日·${SHICHEN_NAMES[t.shichen]}时`;
+    const via = birth.data?.via ?? 'seed';
+    const viaText: Record<string, string> = {
+      seed: `一缕灵光自剑域中心升起——${el}行本命剑胚于此降世。`,
+      reseed: `旧脉既断，新芽复生——${el}行本命剑胚重新种下。`,
+      split: `母剑灵机充盈，分化得第${gen}代${el}行剑子。`,
+      tide: `剑潮汹涌之际，${el}行游离剑意落于剑域。`,
+      parasite: `以寄灵之术化敌为剑子，${el}行剑意归于本命血脉。`,
+    };
+    head = `${timeStr}，${viaText[via] ?? viaText.seed}`;
   } else {
-    head = pick(PROLOGUE_BY_VIA.seed, rng).replace('{el}', el);
+    head = `第1日·子时，${el}行剑胚落入剑域，凡铁自此而始。`;
   }
-
-  // 本局干预背景（简句拼入）
-  const notes: string[] = [];
-  const mats = world.chronicle.count('material');
-  const feeds = world.chronicle.all().filter((e) => e.kind === 'feed').reduce((n, e) => n + (e.data?.count ?? 0), 0);
-  const lava = world.chronicle.count('formation', (e) => e.data?.brush === 'lava');
-  const water = world.chronicle.count('formation', (e) => e.data?.brush === 'deepwater');
-  const seeds = world.chronicle.count('formation', (e) => e.data?.brush === 'seed');
-  const reseeds = world.chronicle.count('reseed');
-  const tides = world.chronicle.all().filter((e) => e.kind === 'tide').map((e) => e.data?.id);
-  const lightning = world.chronicle.count('lightning');
-  // v2.5.1：剑域奇遇显现（世界/玩家种下）
-  const encounterShows = world.chronicle.count('encounter', (e) => !e.actorId);
-  if (mats > 0) notes.push(`炉府曾入${mats}件天材地宝`);
-  if (feeds > 0) notes.push(`你于剑域布霖${feeds}团庚金之气`);
-  if (lava > 0) notes.push(`剑域布下熔岩之阵`);
-  if (water > 0) notes.push(`深水蜿蜒，困锁要道`);
-  if (seeds > 0) notes.push(`奇遇灵种亲手种下`);
-  if (encounterShows > 0) notes.push(`剑域深处曾现奇遇灵光`);
-  if (lightning > 0) notes.push(`天雷曾${lightning}度引落`);
-  if (reseeds > 0) notes.push(`本命曾重种`);
-  if (tides.includes('fierce')) notes.push(`剑潮中现天外凶潮`);
-  if (notes.length > 0) {
-    head += '　' + notes.slice(0, 3).join('，') + '。';
-  }
+  // 一生要览（纯剑事实摘要，不涉玩家操作）
+  const facts: string[] = [];
+  const kills = world.chronicle.countBy('kill', champion.id);
+  const skillNames = (champion.mindSkillIds ?? []).map((id) => MIND_SKILL_BY_ID[id]?.name).filter((n): n is string => !!n);
+  const affixNames = (champion.genome.affixes ?? []).map((a) => affixName(a)).filter(Boolean);
+  const realm = champion.mindRealm ?? 0;
+  if (kills > 0) facts.push(`击破${kills}敌`);
+  if (skillNames.length > 0) facts.push(`悟剑心绝技「${skillNames.join('」「')}」`);
+  if (affixNames.length > 0) facts.push(`得词条「${affixNames.join('」「')}」`);
+  if (realm > 0) facts.push(`剑心自凡心臻至「${realmName(realm)}」`);
+  if (facts.length > 0) head += `　此剑一生${facts.join('、')}。`;
   return head;
 }
 
@@ -320,12 +296,15 @@ function buildEpisodes(ctx: TaleCtx): TaleLine[] {
   const { world, champion } = ctx;
   const lines: { tick: number; text: string; score: number }[] = [];
 
+  // v2.6.0：天劫决胜行（最后一杀）——若存在，则该杀的普通击杀行不再重复叙述
+  const fin = finaleText(ctx);
   const championKills = world.chronicle.all().filter((e) => e.kind === 'kill' && e.actorId === champion.id);
   for (const e of world.chronicle.all()) {
     if (e.kind === 'kill' && e.actorId === champion.id) {
       // v2.5.1：每次击杀都成一条重大纪事（首杀由 firstKill 事件表达，从第 2 杀起逐条）
       const n = championKills.indexOf(e) + 1;
       if (n === 1) continue;
+      if (fin && e.tick === fin.tick) continue; // v2.6.0：决胜杀由「天劫决胜」行表述
       const text = killLineText(e, ctx.rng);
       if (text) lines.push({ tick: e.tick, text, score: 2 });
       continue;
@@ -336,7 +315,8 @@ function buildEpisodes(ctx: TaleCtx): TaleLine[] {
       continue;
     }
     const isMine = e.actorId === champion.id || (e.kind === 'death' && ctx.lineage.has(e.actorId ?? '') && e.actorId !== champion.id);
-    const isGlobal = e.kind === 'emerge' || e.kind === 'tribulation';
+    // v2.6.0：重大纪事只留本剑/本脉自身事件——天劫收缩等环境事件不再单列（决胜由 finale 行表达）
+    const isGlobal = e.kind === 'emerge';
     if (!isMine && !isGlobal) continue;
     // 血亲陨落（drama 3）升为重大事件
     const score = e.kind === 'death' && ctx.lineage.has(e.actorId ?? '') && e.actorId !== champion.id ? 3 : dramaScore(e);
@@ -346,8 +326,7 @@ function buildEpisodes(ctx: TaleCtx): TaleLine[] {
     lines.push({ tick: e.tick, text, score });
   }
 
-  // 天劫决胜
-  const fin = finaleText(ctx);
+  // 天劫决胜（fin 已在顶部计算并用于决胜杀去重）
   if (fin) lines.push({ tick: fin.tick, text: fin.text, score: 5 });
 
   // 排序 + 去重（同 tick 合并保序）+ 截取
@@ -513,11 +492,7 @@ const CHRONICLE_TEXT: Record<string, (e: ChronicleEvent, ctx: TaleCtx) => string
     const skill = MIND_SKILL_BY_ID[e.data?.skillId ?? ''];
     return `悟得剑心绝技「${skill?.name ?? '？'}」。`;
   },
-  encounter: (e) => {
-    // v2.5.1：显现（世界事件）与取得（本命剑取得）分开表述
-    if (!e.actorId) return e.data?.via === 'player' ? '你种下一道奇遇灵种，灵光乍现。' : '一道奇遇灵光于剑域显现，剑意趋之若鹜。';
-    return '取得奇遇灵种，剑心境界提升。';
-  },
+  encounter: () => '取得奇遇灵种，剑心境界提升。',
   thunderSurvive: () => '历天雷而存续（雷劫余生）。',
   nadir: () => '剑体濒崩，绝境逢生。',
   emerge: (e) => `剑意涌现，自成气候（${e.data?.population ?? '?'} 剑 · ${e.data?.gen ?? '?'} 代）。`,
@@ -541,10 +516,13 @@ function buildChronicle(ctx: TaleCtx): TaleLine[] {
   const out: TaleLine[] = [];
   const { champion } = ctx;
   for (const e of ctx.world.chronicle.all()) {
-    // v2.5.1：完整纪事只收录本命剑自身事件（自己杀/被/经历）+ 奇遇显现（世界事件）；玩家操作与其他剑一律不写
+    // v2.6.0：完整纪事只收本命剑自身事件；玩家操作与其他剑、外界事件一律不写
     const mine = e.actorId === champion.id || e.targetId === champion.id;
-    const isEncounterShow = e.kind === 'encounter' && !e.actorId;
-    if (!mine && !isEncounterShow) continue;
+    if (!mine) continue;
+    // 同一击杀的「陨落」侧不再重复叙述（击破行已述）——消除「斩敌剑于剑下」与「敌剑剑下陨落」并存的双行与歧义
+    if (e.kind === 'death' && e.targetId === champion.id) continue;
+    // 本剑的出生不重复：birth 行已述，母剑视角的 split 行略去
+    if (e.kind === 'split' && e.actorId !== champion.id) continue;
     const fn = CHRONICLE_TEXT[e.kind];
     const text = fn ? fn(e, ctx) : null;
     if (!text) continue;

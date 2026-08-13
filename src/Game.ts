@@ -7,6 +7,7 @@ import { WorldRenderer } from './ui/Renderer';
 import { HUD, type FormationBrush } from './ui/HUD';
 import { buildMenu, buildEmbryoSelect, buildElementCard } from './ui/MenuScene';
 import { openFurnacePanel, openDailyDropPanel, openTidePanel, type DailyDropKind } from './ui/DayPanel';
+import { openAudioPanel } from './ui/AudioPanel'; // v2.6.1：炼剑界面音律面板（背景乐/音效 开关+滑块合一）
 import { buildAppraisal, type AppraisalData, type EvoNode } from './ui/AppraisalScene';
 import { writeSwordTale, writeDefeatNote } from './simulation/SwordTale';
 import { buildTournament, type BattleUI, type OpponentInfo } from './ui/BattleScene';
@@ -90,11 +91,13 @@ export class Game {
   emergenceCelebrated = false;
   selectedSwordId: string | null = null;
   emergenceTargetId: string | null = null;
-  /** v2.3.0：布阵模式（地图编辑：熔岩/深水/奇遇种子） */
+  /** v2.3.0：布阵模式（地图编辑：熔岩/深水/恢复，v2.6.0 起纯地形） */
   formationMode = false;
   formationBrush: FormationBrush = 'lava';
-  /** v2.3.0：手动天雷（雷劫液）——武装后点击剑域任意处降雷 */
+  /** v2.3.0：手动天雷——武装后点击剑域任意处降雷 */
   lightningArmed = false;
+  /** v2.6.0：奇遇灵种——炉材使用后武装，点击剑域自选位置种下（与天雷一致的选位交互） */
+  seedArmed = false;
   /** 本命血脉断绝后是否已弹过「重新种下剑胚」的提示 */
   seedExtinctPrompted = false;
   /** v1.11.0：上次「本命血脉已绝」弹窗所在日 (同日重种又死不再弹，避免弹窗疲劳) */
@@ -148,9 +151,14 @@ export class Game {
       const rect = this.canvas.getBoundingClientRect();
       const x = Math.floor(((e.clientX - rect.left) / rect.width) * GRID_WIDTH);
       const y = Math.floor(((e.clientY - rect.top) / rect.height) * GRID_HEIGHT);
-      // v2.3.0：手动天雷（雷劫液）——点击即降雷
+      // v2.3.0：手动天雷——点击即降雷
       if (this.lightningArmed) {
         this.releaseLightning(x, y);
+        return;
+      }
+      // v2.6.0：奇遇灵种——点击自选位置种下（与天雷互斥，armed 时优先）
+      if (this.seedArmed) {
+        this.placeEncounterSeedAt(x, y);
         return;
       }
       if (this.formationMode) return;
@@ -328,12 +336,11 @@ export class Game {
       }
     }
     this.save.feedDropped = 0;
-    // v2.3.0：新局重置布阵次数（熔岩/深水无限，仅奇遇种子计次）
-    // v2.5.1：奇遇灵种初始拥有 → 每局默认自带 1 次奇遇种子布阵之数（布阵即可种下；「炉材」使用奇遇灵种可再 +1）
-    this.save.formation = { seed: this.save.unlockedMaterialIds.includes('encounter_seed') ? 1 : 0 };
+    // v2.6.0：布阵纯地形（熔岩/深水/恢复均不限次）；奇遇改由炉材「奇遇灵种」直接武装选位，不再有布阵次数
     this.formationMode = false;
     this.formationBrush = 'lava';
     this.lightningArmed = false;
+    this.seedArmed = false;
 
     this.save.activeRun = true;
     this.save.embryoGenome = this.embryoGenome;
@@ -468,6 +475,7 @@ export class Game {
     this.hud.onTideClick(() => this.openTidePanel()); // v1.11.0
     this.hud.onReseedClick(() => this.tryReseed()); // v1.11.0
     this.hud.onFormationClick(() => this.toggleFormationMode()); // v2.3.0 布阵
+    this.hud.onAudioClick(() => this.openAudioPanel()); // v2.6.1 音律（开关+滑块合一）
     this.hud.focusHandler = (id) => this.focusSword(id);
     this.refreshHudControls();
     this.mountCanvas(this.hud.canvasHost);
@@ -496,8 +504,8 @@ export class Game {
     );
     this.hud?.setFurnaceEnabled(this.hasMaterialLeft() && this.scene === 'forge');
     this.hud?.setFeedState(this.feedRemaining(), () => this.dropFood());
-    // v2.3.0：布阵模式下刷新次数/笔刷
-    if (this.formationMode) this.hud?.updateFormation(this.save.formation, this.formationBrush);
+    // v2.3.0：布阵模式下刷新当前笔刷（v2.6.0：熔岩/深水/恢复，无次数）
+    if (this.formationMode) this.hud?.updateFormation(this.formationBrush);
   }
 
   private hasMaterialLeft(): boolean {
@@ -522,20 +530,21 @@ export class Game {
       return;
     }
     this.lightningArmed = false; // v2.3.0：进入布阵取消武装天雷，避免点击冲突
+    this.seedArmed = false; // v2.6.0：进入布阵取消奇遇待放置
     this.formationMode = true;
     this.paused = true;
     this.refreshHudControls();
     this.host.classList.add('forming');
-    this.hud?.setFormationMode(true, this.save.formation, this.formationBrush, (b) => {
+    this.hud?.setFormationMode(true, this.formationBrush, (b) => {
       this.formationBrush = b;
-      this.hud?.updateFormation(this.save.formation, b);
+      this.hud?.updateFormation(b);
     }, () => this.exitFormationMode());
   }
 
   private exitFormationMode(): void {
     this.formationMode = false;
     this.host.classList.remove('forming');
-    this.hud?.setFormationMode(false, this.save.formation, this.formationBrush, () => {}, () => {});
+    this.hud?.setFormationMode(false, this.formationBrush, () => {}, () => {});
     if (this.scene === 'forge') {
       this.paused = false;
       this.refreshHudControls();
@@ -547,9 +556,10 @@ export class Game {
     this.formationMode = false;
     this.host.classList.remove('forming');
     this.lightningArmed = false; // v2.3.0：离场取消武装天雷
+    this.seedArmed = false; // v2.6.0：离场取消奇遇待放置
   }
 
-  /** 在网格 (x,y) 处执行当前笔刷（熔岩/深水/恢复/奇遇种子） */
+  /** 在网格 (x,y) 处执行当前笔刷（熔岩/深水/恢复，v2.6.0 起纯地形编辑） */
   private paintFormation(x: number, y: number): void {
     const w = this.world;
     if (!w || this.scene !== 'forge' || !this.formationMode) return;
@@ -581,19 +591,37 @@ export class Game {
         }
         w.chronicle.record('formation', { data: { brush: 'clear' } }); // v2.5.0：剑域纪事
         break;
-      case 'seed':
-        if (this.save.formation.seed <= 0) { toast('奇遇灵种已尽，可用炉材补充。'); return; }
-        if (w.encounterSeed) { toast('剑域已有奇遇灵光显现。'); return; }
-        if (!w.placeEncounterSeed(x, y)) { toast('此处不可种下奇遇灵种。'); return; }
-        this.save.formation.seed--;
-        w.chronicle.record('formation', { data: { brush: 'seed' } }); // v2.5.0：剑域纪事
-        break;
     }
-    this.hud?.updateFormation(this.save.formation, this.formationBrush);
+    this.hud?.updateFormation(this.formationBrush);
     this.saveGame();
   }
 
-  /** v2.3.0：手动天雷（雷劫液）——在点击处降下雷霆，与天劫天雷同伤害/特效 */
+  /** v2.6.0：奇遇灵种——待放置状态点击选位种下（与天雷一致；世界已有奇遇则退还次数） */
+  private placeEncounterSeedAt(x: number, y: number): void {
+    const w = this.world;
+    if (!w || this.scene !== 'forge' || !this.seedArmed) return;
+    if (w.config.isShrinking) {
+      toast('天劫收束之际，剑域壁垒已固，不可种下奇遇。');
+      return;
+    }
+    if (w.encounterSeed) {
+      // 剑域已有奇遇灵光（每日随机或他处显现）→ 退还次数并解除待放置
+      this.seedArmed = false;
+      this.save.materialCounts['encounter_seed'] = (this.save.materialCounts['encounter_seed'] ?? 0) + 1;
+      toast('剑域已有奇遇灵光显现，灵种已收回炉府。');
+      this.saveGame();
+      return;
+    }
+    if (!w.placeEncounterSeed(x, y)) {
+      toast('此处不可种下奇遇灵种（已有地形/壁垒/剑意）。');
+      return; // 保持待放置，可另择他处
+    }
+    this.seedArmed = false;
+    this.refreshHudControls();
+    this.saveGame();
+  }
+
+  /** v2.3.0：手动天雷——在点击处降下雷霆，与天劫天雷同伤害/特效 */
   private releaseLightning(x: number, y: number): void {
     const w = this.world;
     if (!w || this.scene !== 'forge' || !this.lightningArmed) return;
@@ -868,6 +896,19 @@ export class Game {
     });
   }
 
+  /** v2.6.1：音律面板（背景乐/音效 开关+滑块合一）——暂停调音，关闭恢复走时 */
+  private openAudioPanel(): void {
+    if (this.scene !== 'forge') return;
+    this.paused = true;
+    this.refreshHudControls();
+    openAudioPanel(() => {
+      if (this.scene === 'forge') {
+        this.paused = false;
+        this.refreshHudControls();
+      }
+    });
+  }
+
   togglePause(): void {
     this.paused = !this.paused;
     this.refreshHudControls();
@@ -1005,29 +1046,39 @@ export class Game {
     switch (m.effect.type) {
       case 'foodRegenRate':
         w.modifiers.foodRegenMult += m.effect.multiplier;
+        toast(`庚金生成 ×${w.modifiers.foodRegenMult.toFixed(1)}（+${Math.round((w.modifiers.foodRegenMult - 1) * 100)}%）`);
         break;
       case 'allSpeedBonus':
         w.modifiers.speedBonus += m.effect.value;
+        toast(`全体剑意身法 +${w.modifiers.speedBonus}`);
         break;
       case 'temperature':
         w.modifiers.temperature = m.effect.value;
+        toast(`节气：${m.effect.value === 'breeze' ? '清风·灵力消耗降低' : '严寒'}`);
         break;
       case 'mutationBias':
         w.modifiers.mutationBias = { stat: m.effect.stat, rateMult: m.effect.rateMult, sideEffect: m.effect.sideEffect };
+        toast(m.effect.sideEffect === 'speedDown'
+          ? `分化突变：${m.effect.stat === 'speed' ? '速度' : '坚固'} ×${m.effect.rateMult}·速度突变下降`
+          : `分化突变：${m.effect.stat === 'speed' ? '速度' : '坚固'} ×${m.effect.rateMult}`);
         break;
       case 'megaFood':
         w.spawnMegaFood(m.effect.count);
         w.modifiers.aggressionBonus += 0.3;
+        toast('陨星真金坠落，剑意杀性 +0.3');
         break;
-      // v2.3.0：布阵/奇遇系
-      case 'formationSeed':
-        this.save.formation.seed += m.effect.count;
-        toast(`🌱 获得 ${m.effect.count} 次奇遇种子布阵之数，可点「布阵」自选位置种下奇遇。`);
+      // v2.6.0：奇遇灵种——武装选位（不再经布阵模式）
+      case 'encounterSeed':
+        if (this.formationMode) this.exitFormationMode(); // 若在布阵中则退出，避免冲突
+        this.lightningArmed = false;
+        this.seedArmed = true;
+        toast('🌱 奇遇灵种已启，点击剑域自选位置种下！');
         break;
       case 'manualLightning':
-        // v2.3.0：雷劫液改手动天雷——武装一次引雷，点击剑域任意处降下雷霆（与天劫天雷同伤/特效）
+        // v2.3.0：天雷——武装一次引雷，点击剑域任意处降下雷霆（与天劫天雷同伤/特效）
         this.lightningArmed = true;
         if (this.formationMode) this.exitFormationMode(); // 若在布阵中则退出，避免冲突并同步 UI
+        this.seedArmed = false;
         toast('⚡ 天雷已引，点击剑域任意处降下雷霆！');
         break;
     }
@@ -1158,6 +1209,10 @@ export class Game {
     if (day !== w.config.currentDay) {
       w.config.currentDay = day;
       this.save.feedDropped = 0; // 新一日，布霖之量恢复
+      // v2.6.0：天雷每日 5 次——每日子时恢复（仅已解锁时）
+      if (this.save.unlockedMaterialIds.includes('thunder_potion')) {
+        this.save.materialCounts['thunder_potion'] = 5;
+      }
       this.saveGame();
       eventBus.emit(EVT.DAY_START, day);
       // v2.3.0：奇遇种子——每日子时低概率随机显现（玩家也可用炉材主动放置）

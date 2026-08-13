@@ -28,13 +28,13 @@ export const RECIPES: Material[] = [
     effect: { type: 'temperature', value: 'breeze' },
     count: 3,
   },
-  // ===== v2.3.0 布阵/奇遇系：与剑域地形/奇遇玩法深度联动 =====
+  // ===== v2.3.0 布阵/奇遇系：与剑域地形/奇遇玩法深度联动（v2.6.0：奇遇改由炉材直接选位种下） =====
   {
     id: 'encounter_seed',
     name: '奇遇灵种',
-    unlock: 'start', // v2.5.1：初始拥有直接解锁（布阵种奇遇是核心乐趣，此前锁万剑榜前10导致玩家「放不了奇遇，都是0」）
-    description: '灵种入域，机缘自现。获得 1 次「奇遇种子」布阵之数——点「布阵」在剑域自选位置种下，被剑意取得者剑心境界 +1；无需封锁，亦可自行以熔岩/深水设下试炼。',
-    effect: { type: 'formationSeed', count: 1 },
+    unlock: 'start', // v2.5.1：初始拥有直接解锁（种奇遇是核心乐趣）
+    description: '灵种入域，机缘自现。使用后点击剑域自选位置种下，被剑意取得者剑心境界 +1；可自行以熔岩/深水封锁设下试炼。',
+    effect: { type: 'encounterSeed' },
     count: 1,
   },
   {
@@ -55,11 +55,11 @@ export const RECIPES: Material[] = [
   },
   {
     id: 'thunder_potion',
-    name: '雷劫液',
-    unlock: 'start', // v2.4.0：手动天雷直接解锁（玩家乐趣），不再锁万剑榜前 3
-    description: '引动天雷，蓄于指尖。使用后点击剑域任意处降下雷霆——闪电劈落、范围雷暴（半径 2 内剑意同受天雷：剑体-28、精元-12），可击杀剑意。',
+    name: '天雷',
+    unlock: 'start', // v2.4.0：手动天雷直接解锁（玩家乐趣）；v2.6.0：每日 5 次，每日子时恢复
+    description: '引天雷于指尖，每日可引 5 次（每日子时恢复）。使用后点击剑域任意处降下雷霆——闪电劈落、范围雷暴（半径 2 内剑意同受天雷：剑体-28、精元-12），可击杀剑意。',
     effect: { type: 'manualLightning' },
-    count: 2,
+    count: 5,
   },
   {
     id: 'meteor_iron',

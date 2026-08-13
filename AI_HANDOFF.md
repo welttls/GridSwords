@@ -68,7 +68,7 @@ src/
 ## 五、核心玩法机制
 
 1. **择剑胚**：五行五选一，选后 `startNewRun(element)`。**v2.0.0 五行差异化**：初始剑谱按模板（上限 10）——火 8/4/5/5（爆发·杀性 0.55-0.8 嗜战追杀）、木 5/6/6/6（均衡·杀性 0.35-0.47 温和·**淬毒/毒木反噬专属**）、土 5/9/3/5（铁壁·慢·杀性 0.35-0.47 温和·**厚土反震**）、金 6/5/8/5（快剑·杀性 0.5-0.7 好战）、水 5/6/6/7（感知·杀性 0.4-0.55·**生生不息**：回血 ×2.0 WATER_REGEN_MULT + 采食回能 ×1.35（v2.1.0 已移除受击减免 15% 与耗神 -15%，食物效率已足够支撑水系立足））；游离剑意（剑潮）亦按模板+天数强度。伤害公式 `max(1, ceil(攻伐×0.35), 攻伐−坚韧×0.4)`（追击锁定再 +30%）；杀性驱动追击执着度，主动攻击门槛 0.4。**水存活关键**：死因多为饿死（能量耗尽），采食回能 ×1.35 是决定性修复（headless 水存活从垫底升至前列）。**土系厚土反震**：`BattleResolver` 守方土系时反震 = 伤害×0.8（不受追击减半），反震磨死攻击者计土系 killCount（被动击杀路径，headless 土系 3/3 局晋升、存活王）。
-2. **炼剑十日**：随时**布霖**(原「投食」，v2.3.0 改名，每日 12 团)、炉材道具化(次数制)、每日子时剑潮(mild/tide/fierce/none/auto)——v1.10.0 起弹窗默认高亮上次选择 + 6 秒倒计时(超时沿用上次/首日静待天时)，可勾选「本局一直用此选择」免弹窗(存档 `dailyDropKind`/`dailyDropLocked`，新局重置、续玩保留)。v1.11.0 起 HUD 底栏新增「剑潮」按钮可随时改偏好(下次子时生效)、「重种本命」按钮(本命灭绝可手动种回)；「本命血脉已绝」弹窗三选项(重新种下/暂不重种/罢了)且同日内限弹 1 次。**v2.3.0**：HUD 新增「布阵」按钮（地图编辑：熔岩/深水/清除/奇遇种子，次数由炉材提供，天劫期禁用）；重种弹窗内嵌五行卡片（默认高亮当前五行，可改选，重种后同步 `embryoGenome`/存档）；每日子时奇遇种子低概率随机显现（`ENCOUNTER_SEED_DAILY_CHANCE=0.15`）。
+2. **炼剑十日**：随时**布霖**(原「投食」，v2.3.0 改名，每日 12 团)、炉材道具化(次数制)、每日子时剑潮(mild/tide/fierce/none/auto)——v1.10.0 起弹窗默认高亮上次选择 + 6 秒倒计时(超时沿用上次/首日静待天时)，可勾选「本局一直用此选择」免弹窗(存档 `dailyDropKind`/`dailyDropLocked`，新局重置、续玩保留)。v1.11.0 起 HUD 底栏新增「剑潮」按钮可随时改偏好(下次子时生效)、「重种本命」按钮(本命灭绝可手动种回)；「本命血脉已绝」弹窗三选项(重新种下/暂不重种/罢了)且同日内限弹 1 次。**v2.3.0**：HUD 新增「布阵」按钮（地图编辑：熔岩/深水/清除）；**v2.6.0**：布阵回归纯地形编辑（熔岩/深水/恢复三笔刷均不限次）——奇遇改由炉材「奇遇灵种」直接选位种下；重种弹窗内嵌五行卡片（默认高亮当前五行，可改选，重种后同步 `embryoGenome`/存档）；每日子时奇遇种子低概率随机显现（`ENCOUNTER_SEED_DAILY_CHANCE=0.25`）；「天雷」每日 5 次每日子时恢复。
 3. **涌现**：剑意数 ≥20(`EMERGENCE_THRESHOLD`)且世代 ≥6(`EMERGENCE_MIN_GEN`)→「自成气候」，可点击聚焦。
 4. **天劫**：第 10 日食物停生、边界向内收缩(每 8 tick 一格)至 **4×4**（v2.1.0：**最终留场**——给落雷/战斗特效展示空间；到 4×4 后不再缩墙、不再落雷，防天雷误杀决胜）；收缩同步**全领域天雷**（伤害 28/耗精元 12，道数受**场地面积钳制**：区域越小越稀疏）；边缘剑意**向内挤入**（不再墙杀：原位向中心退一步压缩，**挤入遇阻直接争斗**、败者弹开）；**天劫临时杀性**：`TRIBULATION_AGGRESSION_BONUS=0.4` + **恐惧本能失效**（`SwordAgent.instinctBias` 天劫收束期间不逃离）——困兽犹斗、谁都要争夺；**天劫期间血亲亦相争**（`kinProtected()` 在 isShrinking 时失效）；**斗至最后一柄**：只剩 1 柄即结束，`TRIBULATION_MAX_TICKS=1 日` 超时强制收束兜底（多幸存者时鉴定取最优）；幸存者评本命剑；v1.10.0 起失败(无幸存者)弹「剑意尽灭」界面(存活峰值/全灭日 + 重新炼剑快捷入口)，仍不得剑尘。headless：无干预/扶持 **18/18 恰好 1 柄胜出、零尽灭、零超时**；扶持胜者含忘我/洞玄。
 5. **剑成鉴定**：评分 = 存续×10 + 血脉相承×20 + 剑谱总和×0.5 + 本性殊异(≤15)。
@@ -88,7 +88,7 @@ src/
 
 **剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。**v2.3.0 机制差异化**（同类技能不再只是数值差）：青藤缚命中**定身**（`rootedTicks`）、惊涛斩**击退**（`knockback`）、焚天爆命中**灼烧**（`burningTicks`）+余烬化**火墙**（v2.4.0：自爆心扩散至半径 5、灼烧扫过之敌后消散——不留地形、不困自身）、地脉震**减速**（`slowedTicks`）、金罡体/百炼守**反震**（`reflectPct`）、磐石护**免控**（`immuneCCTicks`）、烈焰甲**附火**（`flameArmorTicks`）。控制字段全在 `SwordState`（运行时可选字段），`Skills.tickCombatStates` 递减；`BattleResolver`/`Skills.damageSword` 统一接入反震/附火。**v2.4.0 施放重构**：**独立冷却**（`agent.skillCds` 按技能各算、运行时字段不序列化，读档重置；不再共用 `skillCd` 饿死高等级技能）+ **情境智能评分选技**（`tryCastSkill`：多敌→范围、单敌→单体、残血→回血/逃跑优先；评分 = 等级优先级（忘我大招 3 > 通明/洞玄绝技 2 > 天赋/词条 1）×10 + 情境加成 + 抖动，选最高分，以最高分技能概率放行——高等级 CD 长但出手更勤）。
 
-**剑域地形与奇遇(v2.3.0)**：`World.terrain` 层（`TerrainType='lava'|'deepwater'` + `terrainSet` 增量集合 + `terrainExpiry` 临时地形队列，随 `exportEcoState` 序列化）。**熔岩**=一步踏入即死（`performMoveTo` 顶部判定）、视作壁垒避让（`isWall` 含 lava）、饥饿执念小概率犯险（`LAVA_DESPERATION_CHANCE`）、瞬移/击退可渡（落地/被击入熔岩即死）、立于其上超一完整 tick 即死；**深水**=可通行但减速（`mired` 概率受阻）+ 耗精元 ×1.5（水行免疫）。**奇遇种子**=`World.encounterSeed`（单颗），`placeEncounterSeed`/`claimEncounterSeed`（`moveSword` 踏入/瞬移自动触发），取得 → `SwordAgent.grantMindRealm`（境界+1，复用 `applyMindPromotion`，忘我后化灵力补满）；剑意强吸引（instinctBias 权重 1.6）；瞬移技能在种子 6 格内直取种子格。**奇遇灵种是独立投入物**——`formationSeed` 炉材授予 1 次布阵之数（非直接放置），玩家在布阵模式（暂停）自主选位种下，可自选是否以熔岩/深水封锁。**布阵 UI**：HUD「布阵」→ `Game.toggleFormationMode`（暂停+单行紧凑工具栏+点画拖动），笔刷=熔岩/深水/恢复/奇遇种子（`FORMATION_TIPS` 悬浮说明）；**熔岩/深水/恢复均不限次**（`clearTerrain` 去熔岩/深水/临时火海），仅奇遇种子计次（`GameSave.formation.seed`）；**v2.4.0 恢复笔刷范围化**——一次清除 3×3 邻域；**布阵模式下画布下移让位（`.forge-screen.forming .canvas-host` padding-top），工具栏不遮挡剑域**；天劫期禁用。**手动天雷（v2.3.0 / v2.4.0 范围雷暴）**：雷劫液（**v2.4.0 初始拥有直接解锁**）→ `Game.lightningArmed` → 点击画布 → `World.strikeLightning`（**v2.4.0 半径 2 曼哈顿范围 AoE**：范围内剑意 -28/-12，致死 die、幸存标 `survivedThunder`「雷劫余生」；**v2.5.0 返回击杀数**供成就「雷神降世」；**闪电劈落 + 范围雷暴特效**，天劫落雷同享）。
+**剑域地形与奇遇(v2.3.0)**：`World.terrain` 层（`TerrainType='lava'|'deepwater'` + `terrainSet` 增量集合 + `terrainExpiry` 临时地形队列，随 `exportEcoState` 序列化）。**熔岩**=一步踏入即死（`performMoveTo` 顶部判定）、视作壁垒避让（`isWall` 含 lava）、饥饿执念小概率犯险（`LAVA_DESPERATION_CHANCE`）、瞬移/击退可渡（落地/被击入熔岩即死）、立于其上超一完整 tick 即死；**深水**=可通行但减速（`mired` 概率受阻）+ 耗精元 ×1.5（水行免疫）。**奇遇种子**=`World.encounterSeed`（单颗），`placeEncounterSeed`/`claimEncounterSeed`（`moveSword` 踏入/瞬移自动触发），取得 → `SwordAgent.grantMindRealm`（境界+1，复用 `applyMindPromotion`，忘我后化灵力补满）；剑意强吸引（instinctBias 权重 1.6）；瞬移技能在种子 6 格内直取种子格。**奇遇灵种（v2.6.0 起入炉材）**：炉材使用 → `Game.seedArmed` 武装待放置 → 点击画布 → `World.placeEncounterSeed(x,y)` 选位种下（与天雷一致的选位交互；剑域已有奇遇则退还次数）；可自选是否以熔岩/深水封锁。**布阵 UI（纯地形编辑）**：HUD「布阵」→ `Game.toggleFormationMode`（暂停+单行紧凑工具栏+点画拖动），笔刷=熔岩/深水/恢复（`FORMATION_TIPS` 悬浮说明），**均不限次**（`clearTerrain` 去熔岩/深水/临时火海）；**v2.4.0 恢复笔刷范围化**——一次清除 3×3 邻域；**布阵模式下画布下移让位（`.forge-screen.forming .canvas-host` padding-top），工具栏不遮挡剑域**；天劫期禁用。**手动天雷（v2.3.0 / v2.4.0 范围雷暴 / v2.6.0 改名「天雷」每日 5 次）**：天雷（**v2.4.0 初始拥有直接解锁**，`GameSave.materialCounts['thunder_potion']` 每日子时重置 5）→ `Game.lightningArmed` → 点击画布 → `World.strikeLightning`（**v2.4.0 半径 2 曼哈顿范围 AoE**：范围内剑意 -28/-12，致死 die、幸存标 `survivedThunder`「雷劫余生」；**v2.5.0 返回击杀数**供成就「雷神降世」；**闪电劈落 + 范围雷暴特效**，天劫落雷同享）。
 
 **剑域纪事与剑谱（v2.5.0，事件采集层）**：`World.chronicle`（`src/simulation/Chronicle.ts`）结构化记录本局所有关键事件（birth/firstKill/kill/death/promotion/affix/mindSkill/encounter/thunderSurvive/nadir/emerge/tribulation + 玩家操作 feed/material/formation/lightning/tide/reseed），**纯数据 headless、只存内存不持久化**；**`SwordAgent.die(cause?, killerId?)`**——13 处调用点标注死因（starve/melee/skill/counter/lava/thunder/poison/burn/wound），反震致死经 `lastHitBy` 归因（counter），击杀经 `World.recordKill` 记录（含血亲标记/首杀）。**剑谱 `writeSwordTale`**（`src/simulation/SwordTale.ts`，seeded PRNG 选措辞、确定性稳定）：天劫收束后生成「出身→重大纪事（drama≥3 逐条一行）→总结评语（评分四档+经历维度）→完整纪事（可折叠）」；命名实时联动、随 `RankedSword.tale`/`PendingAppraisal.tale` 存档回看（`openTaleModal`）；败局 `writeDefeatNote` 生成「剑域札记」当场展示。**成就系统**（`src/data/Achievements.ts`，14 个，判定全部来自 chronicle + `GameSave.stats` 累计）：`Game.accumulateStats`/`Game.checkAchievements` 在 `endTribulation`（成败皆结算）与 `finishAppraisal`（万剑之王按 rank）调用；主菜单「成就」面板 `AchievementsPanel.ts`。**坑**：成就与现有规则冲突者一律不做（灭门惨案/五行逆转/师慈徒孝）；`RankedSword` 的 `tale` 字段非空时条目可点击回看；剑谱内容止于剑成、大比战绩不入谱。
 
@@ -99,13 +99,13 @@ src/
 | 千年寒铁 | 庚金生成 +40% | 4 |
 | 无根水 | **全体身法 +0.5(每 tick 有几率额外行动一步，移动更迅疾)** | 3 |
 | 御风符 | 温度→清风(能耗 -40%) | 3 |
-| **奇遇灵种 (v2.3.0)** | **获得 1 次「奇遇种子」布阵之数（布阵模式自选位置种下，取得者剑心境界+1）；万剑榜前10 解锁** | 1 |
+| **奇遇灵种 (v2.3.0 / v2.6.0 改入炉材)** | **炉材直接使用 → 点击剑域自选位置种下（取得者剑心境界+1）；剑域已有奇遇则退还次数** | 1 |
 | 《快剑总纲》残篇 | 分化速度突变率 ×3 | 2 |
 | 《重剑无锋诀》 | 分化坚固突变率 ×3、速度突变率降 | 2 |
-| **雷劫液 (v2.3.0 / v2.4.0)** | **手动天雷（v2.4.0 初始拥有直接解锁）：使用后武装一次引雷，点击剑域任意处降雷——闪电劈落、范围雷暴（半径 2 内剑体-28/精元-12，可击杀；幸存者标「雷劫余生」）** | 2 |
+| **天雷 (v2.3.0 / v2.4.0 / v2.6.0 改名)** | **手动天雷（初始拥有）：使用后武装引雷，点击剑域任意处降雷——闪电劈落、范围雷暴（半径 2 内剑体-28/精元-12，可击杀；幸存者标「雷劫余生」）** | **每日 5（每日子时恢复）** |
 | 陨星铁母 | 撒超高能量食物 + 攻击欲望 +0.3 | 1 |
 
-> v2.3.0：「投食」改名「**布霖**」（全量替换按钮/日志/注释）；**熔岩/深水/恢复布阵不限次数**（已删「扶桑火种/赤地灵契/玄冥真水」）；「雷劫液」由全图被动雷劫改**手动天雷**（`World.strikeLightning`，废弃 `modifiers.thunderstorm`）；布阵系仅「奇遇灵种」计次（`GameSave.formation.seed`）。
+> v2.3.0：「投食」改名「**布霖**」（全量替换按钮/日志/注释）；**熔岩/深水/恢复布阵不限次数**（已删「扶桑火种/赤地灵契/玄冥真水」）；「雷劫液」由全图被动雷劫改**手动天雷**（`World.strikeLightning`，废弃 `modifiers.thunderstorm`）。**v2.6.0**：奇遇灵种改炉材直接选位（布阵纯地形，删 `GameSave.formation.seed` 用法、字段保留兼容）；「雷劫液」改名「**天雷**」每日 5 次（`Game.checkDay` 子时重置）；炉材面板新增「当前剑域气象」区块；HUD 底栏按钮全加 tooltip。
 
 ## 七、调试
 
@@ -163,6 +163,10 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.7.0（2026-08-13）**：剑域 HUD 底栏 🎵/🔊 两开关合并为单个「音律」按钮，打开与主菜单/大比共用的音律面板（`openAudioPanel(onClose?)` 新增关闭回调）——背景乐/音效开关+滑块同处调节；`Game.openAudioPanel()` 暂停调音、关闭恢复（`HUD.onAudioClick` 接线）。实机：滑块实时生效、暂停/恢复正常。
+
+- **v2.6.0（2026-08-13）**：剑潮/HUD 底栏按钮悬浮解释全覆盖；炉材面板「当前剑域气象」区块（已生效修正 + 已投入炉材 + 天雷剩余）+ 使用炉材即时 toast 数值；奇遇入炉材（`Game.seedArmed` 点击选位种下、已有则退还），布阵回归纯地形三笔刷（删 `formation.seed` 用法、字段保留兼容）；「雷劫液」改名「**天雷**」每日 5 次（`checkDay` 子时重置，成就/注释同步）；剑谱重写为纯剑生平（出身含出生时辰/第几代/一生要览、删玩家句、击杀-陨落去重、决胜杀去重、出生不重复、奇遇显现不入谱、天劫收缩环境行出局）+ 第 10 日超界时辰钳制（剑谱 `dayShichen` 与 HUD 时钟同修）。headless：剑谱 16 断言全通过、build 零错误。
 
 - **v2.5.0（2026-08-13）**：剑谱叙事系统（剑成鉴定生成修仙风剑谱：出身/重大纪事逐条/总结评语/完整纪事折叠；seeded 措辞、命名联动并随名剑回看；败局「剑域札记」）+ 成就系统（14 个：叙事/运营/涌现/累计，主菜单面板 + 结算 toast）。共用事件采集层 Chronicle（`die(cause?, killerId?)` 死因溯源、`strikeLightning` 返回击杀数、出生/击杀/晋升/词条/绝技/奇遇/雷劫余生/濒死/涌现/天劫 + 玩家操作事件）。**v2.5.1 增强**：剑心绝技特效大场面化（rain 剑雨效果类型 + boltFx/ringsFx/rainFx，万剑朝宗全屏剑雨四重冲击环等 7 技各有专属）；剑谱文案修正（孤剑「走完十日」按存续≥0.9 才用、血脉后裔不叫「半途入局」、完整纪事只收本命剑事件 + 奇遇显现、击杀按方式描述且去「有主之剑/血亲相残」、分化注明母剑主语——新增 `split` 事件母剑视角）；重大纪事含每次分化/击杀（上限 18 条）；奇遇——`placeEncounterSeed` 补记显现 + `ENCOUNTER_SEED_DAILY_CHANCE` 0.15→0.25 + **奇遇灵种初始解锁（encounter_seed 入 START_UNLOCKED）+ 新局自带 1 次奇遇种子布阵之数**（Game.doStartNewRun formation.seed 初始=1）。headless：无干预 8-14 / 扶持 47-51；奇遇 5/5 显现即取得。
 

@@ -14,8 +14,8 @@ export type MaterialEffect =
   | { type: 'temperature'; value: 'cold' | 'breeze' }
   | { type: 'mutationBias'; stat: 'speed' | 'toughness'; rateMult: number; sideEffect?: 'speedDown' }
   | { type: 'megaFood'; count: number }
-  // v2.3.0：布阵/奇遇系——奇遇种子布阵次数 + 手动天雷
-  | { type: 'formationSeed'; count: number }
+  // v2.6.0：奇遇灵种——炉材直接武装选位种下 + 手动天雷
+  | { type: 'encounterSeed' }
   | { type: 'manualLightning' };
 
 /** 投入物 (材料)：以道具次数使用，改变整个炼剑炉的属性 */
@@ -25,7 +25,7 @@ export interface Material {
   description: string;
   unlock: MaterialUnlock;
   effect: MaterialEffect;
-  /** 每局可用次数 */
+  /** 每局可用次数（「天雷」为每日次数，每日子时恢复） */
   count: number;
 }
 
