@@ -16,19 +16,27 @@ export function buildMenu(host: HTMLElement, game: Game): void {
   screen.appendChild(intro);
 
   const buttons = el('div', 'menu-buttons');
-  const mk = (label: string, fn: () => void, cls = 'btn-gold') => {
-    const b = el('button', `btn ${cls}`, label);
+  const mk = (
+    label: string,
+    fn: () => void,
+    cls = 'btn-gold',
+    opts: { disabled?: boolean; span2?: boolean } = {},
+  ) => {
+    const b = el('button', `btn ${cls}`, label) as HTMLButtonElement;
+    if (opts.disabled) b.disabled = true; // v2.8.0：无档禁用但不隐藏
+    if (opts.span2) b.classList.add('menu-span2');
     b.addEventListener('click', fn);
     buttons.appendChild(b);
   };
-  mk('☰ 开始炼剑', () => game.showEmbryoSelect());
-  if (game.save.activeRun || game.save.pendingScene) {
-    mk('▶ 继续炼剑', () => game.continueRun(), 'btn-ghost');
-  }
+  // v2.8.1：上排 4 个次要按钮（按使用频率）——万剑榜 / 成就 / 图鉴 / 音律
   mk('万剑榜', () => game.showRanking(), 'btn-ghost');
   mk('成就', () => game.showAchievements(), 'btn-ghost'); // v2.5.0
   mk('图鉴', () => game.showCodex(), 'btn-ghost');
   mk('音律', () => openAudioPanel(), 'btn-ghost'); // v2.3.1：音量设置
+  // v2.8.1：下排两个大按钮（最高频）——开始炼剑 / 继续炼剑（各占两列；继续炼剑无档禁用但始终显示）
+  const hasRun = !!(game.save.activeRun || game.save.pendingScene);
+  mk('☰ 开始炼剑', () => game.showEmbryoSelect(), 'btn-gold menu-primary', { span2: true });
+  mk('▶ 继续炼剑', () => game.continueRun(), hasRun ? 'btn-gold menu-primary' : 'btn-ghost menu-primary', { disabled: !hasRun, span2: true });
   screen.appendChild(buttons);
   host.appendChild(screen);
 }
@@ -53,17 +61,17 @@ export function buildElementCard(
   return card;
 }
 
-/** 剑胚选择 (五行五选一) */
+/** 剑胚选择 (五行五选一；v2.8.0：点选后进入「择剑域」再开局) */
 export function buildEmbryoSelect(host: HTMLElement, game: Game): void {
   clearNode(host);
   const screen = el('div', 'screen embryo-screen');
   screen.appendChild(el('h2', 'menu-title small', '择 剑 胚'));
-  screen.appendChild(el('p', 'menu-intro', '五行乃剑意之根。选择初始凡铁剑意的五行倾向，第一道剑意将因此而生。'));
+  screen.appendChild(el('p', 'menu-intro', '五行乃剑意之根。选择初始凡铁剑意的五行倾向，再择剑域，第一道剑意将因此而生。'));
 
   const grid = el('div', 'embryo-grid');
   const elements: Element[] = ['metal', 'wood', 'water', 'fire', 'earth'];
   for (const e of elements) {
-    grid.appendChild(buildElementCard(e, { onClick: () => game.startNewRun(e) }));
+    grid.appendChild(buildElementCard(e, { onClick: () => game.openMapSelect(e) }));
   }
   screen.appendChild(grid);
 

@@ -43,6 +43,7 @@ npm run preview      # 预览生产构建
 | `src/simulation/Skills.ts` | 剑意技能系统(五行天赋 + 词条衍生) |
 | `src/audio/AudioManager.ts` + `sfxSynth.ts` | 音频管理器(BGM 切曲/暂停联动/静音) + Web Audio 合成音效 |
 | `src/data/SaveManager.ts` | 存档结构 `GameSave`(改存档必看) |
+| `src/data/MapDB.ts` | **v2.8.0 剑域地图表**（多地图·择剑域：静态地形生成/主题色/资源覆盖/专属事件/成就解锁） |
 | `src/ui/Renderer.ts` + `HUD.ts` | Pixi 画布渲染 + DOM 主界面 |
 
 ## 四、架构核心(30 秒版)
@@ -54,7 +55,7 @@ src/
 ├── types/    # Genome / Sword / Environment / Material
 ├── simulation/  # World / SwordAgent / NeuralNet / Genetics / BattleResolver / Duel / Skills / Chronicle(事件层) / SwordTale(剑谱) (完全 headless)
 ├── ui/       # Renderer / HUD / Menu / DayPanel / Appraisal / Battle / Ranking / Codex / SwordDetail / AchievementsPanel / taleView / swordIcon / modals / tooltip
-├── data/     # RecipeDB / SwordArts / NPCs / SaveManager / RankingManager / AffixDB / Achievements
+├── data/     # RecipeDB / SwordArts / NPCs / SaveManager / RankingManager / AffixDB / Achievements / MapDB(v2.8.0 地图表)
 └── utils/    # mathUtils / eventBus / dom
 ```
 
@@ -89,6 +90,10 @@ src/
 **剑意技能**(`Skills.ts`)：五行天赋**每行 2 技**(主+辅，v1.8.0 扩充)——金[剑气斩+金罡体]/木[回春术+青藤缚]/水[瞬水步+惊涛斩]/火[焚天爆+烈焰甲]/土[磐石护+地脉震]；词条衍生 6 技。灵鉴「剑技」区块与宗门大比招式同源(`Duel.buildTechniques`，上限 5 招)。**v2.3.0 机制差异化**（同类技能不再只是数值差）：青藤缚命中**定身**（`rootedTicks`）、惊涛斩**击退**（`knockback`）、焚天爆命中**灼烧**（`burningTicks`）+余烬化**火墙**（v2.4.0：自爆心扩散至半径 5、灼烧扫过之敌后消散——不留地形、不困自身）、地脉震**减速**（`slowedTicks`）、金罡体/百炼守**反震**（`reflectPct`）、磐石护**免控**（`immuneCCTicks`）、烈焰甲**附火**（`flameArmorTicks`）。控制字段全在 `SwordState`（运行时可选字段），`Skills.tickCombatStates` 递减；`BattleResolver`/`Skills.damageSword` 统一接入反震/附火。**v2.4.0 施放重构**：**独立冷却**（`agent.skillCds` 按技能各算、运行时字段不序列化，读档重置；不再共用 `skillCd` 饿死高等级技能）+ **情境智能评分选技**（`tryCastSkill`：多敌→范围、单敌→单体、残血→回血/逃跑优先；评分 = 等级优先级（忘我大招 3 > 通明/洞玄绝技 2 > 天赋/词条 1）×10 + 情境加成 + 抖动，选最高分，以最高分技能概率放行——高等级 CD 长但出手更勤）。
 
 **剑域地形与奇遇(v2.3.0)**：`World.terrain` 层（`TerrainType='lava'|'deepwater'` + `terrainSet` 增量集合 + `terrainExpiry` 临时地形队列，随 `exportEcoState` 序列化）。**熔岩**=一步踏入即死（`performMoveTo` 顶部判定）、视作壁垒避让（`isWall` 含 lava）、饥饿执念小概率犯险（`LAVA_DESPERATION_CHANCE`）、瞬移/击退可渡（落地/被击入熔岩即死）、立于其上超一完整 tick 即死；**深水**=可通行但减速（`mired` 概率受阻）+ 耗精元 ×1.5（水行免疫）。**奇遇种子**=`World.encounterSeed`（单颗），`placeEncounterSeed`/`claimEncounterSeed`（`moveSword` 踏入/瞬移自动触发），取得 → `SwordAgent.grantMindRealm`（境界+1，复用 `applyMindPromotion`，忘我后化灵力补满）；剑意强吸引（instinctBias 权重 1.6）；瞬移技能在种子 6 格内直取种子格。**奇遇灵种（v2.6.0 起入炉材）**：炉材使用 → `Game.seedArmed` 武装待放置 → 点击画布 → `World.placeEncounterSeed(x,y)` 选位种下（与天雷一致的选位交互；剑域已有奇遇则退还次数）；可自选是否以熔岩/深水封锁。**布阵 UI（纯地形编辑）**：HUD「布阵」→ `Game.toggleFormationMode`（暂停+单行紧凑工具栏+点画拖动），笔刷=熔岩/深水/恢复（`FORMATION_TIPS` 悬浮说明），**均不限次**（`clearTerrain` 去熔岩/深水/临时火海）；**v2.4.0 恢复笔刷范围化**——一次清除 3×3 邻域；**布阵模式下画布下移让位（`.forge-screen.forming .canvas-host` padding-top），工具栏不遮挡剑域**；天劫期禁用。**手动天雷（v2.3.0 / v2.4.0 范围雷暴 / v2.6.0 改名「天雷」每日 5 次）**：天雷（**v2.4.0 初始拥有直接解锁**，`GameSave.materialCounts['thunder_potion']` 每日子时重置 5）→ `Game.lightningArmed` → 点击画布 → `World.strikeLightning`（**v2.4.0 半径 2 曼哈顿范围 AoE**：范围内剑意 -28/-12，致死 die、幸存标 `survivedThunder`「雷劫余生」；**v2.5.0 返回击杀数**供成就「雷神降世」；**闪电劈落 + 范围雷暴特效**，天劫落雷同享）。
+
+**剑域地图（v2.8.0 多地图 · 择剑域）**：`src/data/MapDB.ts` 定义 `MapDef`（id/名称/大字 char/简介/解锁成就 id/主题色 `MapTheme`/**五行相性 `affinity`**/资源覆盖/静态地形生成 `genStatic`/专属事件 `event`）。开局流程 = 择剑胚 → `Game.openMapSelect(element)` 择剑域模态（已解锁可点选、锁定显示成就名；卡片大字 `char` + 相性清单）→ `startNewRun(element, mapId)` → `new World({ mapId })`。`WorldConfig.mapId`（`types/Environment.ts`）；World 构造时应用资源覆盖 + 静态地形；`World.tick()` 末尾调度专属事件（`perTickChance`+`cooldownTicks`，天劫期 `isShrinking` 禁用，触发文本 emit LOG 进剑域纪事）。初版 3 图：荒域（默认）、熔岩炼狱（🔒 成就 `terrain_master`，初始熔岩斑块 + 地火喷涌 + 相性 火+攻伐1/杀性0.08、水耗神×1.25/回血×0.6、金-攻伐1、木采气回能×1.1）、寒潭幽谷（🔒 成就 `thunder_lived`，初始深水潭 + 寒潮涌起 + 相性 水回血×1.25/采气回能×1.15、火-攻伐1/杀性0.08、木回血×1.2、金耗神×0.95）。**相性接入点（重要）**：`World.affinityFor(element)` 公开查询；`effectiveAggression(base, element)` 已带 element（SwordAgent 两处调用补参）；`SwordAgent.effectiveSharpness()` 末尾加 `atkBonus`；tick 内 3 处乘数——耗神（eat30 后 `cost *= affinity.costMult`）、回血（`regen *= affinity.regenMult`）、采食回能（`energy += food × affinity.energyGainMult`）。**已确认宗门大比不受相性影响**（Duel 不走 effectiveSharpness/effectiveAggression）。HUD 顶栏 `setMapName` 显示「剑 域 · 熔岩炼狱」。**坑**：①静态地形必须避开中心出生区（生成函数 skip 中心 keep×keep）；②熔岩视作 `isWall`，斑块要小且分散保证连通；③`GameSave.mapId` 要 defaultSave/load 迁移/exportSave 三处同步（旧档兜底 null）；④续档 `continueRun`/`agentFromState` 两处 `new World({currentDay})` 都要补传 `mapId`（静态地形已随 `eco` 持久化，无需新结构）；⑤渲染主题：`Renderer.ts` 抽出 `WorldRendererTheme`，构造第 6 参传入，`buildForgeScene` 按 `world.config.mapId` 查 `getMap().theme`（荒域=原配色）；⑥事件地形用 `eruptTerrain` 统一实现——避开剑意占位（`swordIdAt`）、已有地形/墙，`setTerrain(durationTicks)` 到期自动消退；⑦事件触发频率实测校准：perTickChance 0.0015 + cooldown 480 ≈ 每 1~2 日一次（0.55 次/日）。
+
+**布阵 UI（纯地形编辑，v2.8.1 常驻化）**：`Game.formationBrush: FormationBrush | null`（null=未武装）——画布右侧栏三笔刷（熔岩/深水/恢复）常驻，点选拿起、再点同笔刷收起（`onBrushClick`），**不暂停走时**（武装制，与天雷/奇遇一致互斥）；pointerdown/pointermove 拖动涂画布（`paintFormation`），click 时 `formationBrush` 非空则不聚焦灵鉴；天劫期禁笔刷；离场 `leaveFormation` 清理。**坑：不再有 `formationMode`/`toggleFormationMode`/`exitFormationMode`/`setFormationMode`——全部改名 `formationBrush` 武装制**；`refreshHudControls` 里 `hud.setBrush(this.formationBrush, onBrushClick)` 恒调用。**炉材/气象/布阵布局**：HUD `canvasHost` 三栏——左 `side-left`（剑域气象 `setAura`，`buildMaterialAura` 从 DayPanel 导出）+ 中 `canvas-wrap`（画布挂载 `canvasSlot`，`Game.mountCanvas(this.hud.canvasSlot)`）+ 右 `side-right`（炉材 `setMaterials` + 布阵 `setBrush`）；`setAura`/`setMaterials` 在 `Game.update` frame%6 分支调用。**主菜单（v2.8.1）**：`.menu-buttons` grid 4 列，上排 4 次按钮（万剑榜/成就/图鉴/音律）+ 下排 2 大按钮（开始炼剑/继续炼剑 `.menu-primary` span2；继续炼剑无档 disabled 但始终显示）。
 
 **剑域纪事与剑谱（v2.5.0，事件采集层）**：`World.chronicle`（`src/simulation/Chronicle.ts`）结构化记录本局所有关键事件（birth/firstKill/kill/death/promotion/affix/mindSkill/encounter/thunderSurvive/nadir/emerge/tribulation + 玩家操作 feed/material/formation/lightning/tide/reseed），**纯数据 headless、只存内存不持久化**；**`SwordAgent.die(cause?, killerId?)`**——13 处调用点标注死因（starve/melee/skill/counter/lava/thunder/poison/burn/wound），反震致死经 `lastHitBy` 归因（counter），击杀经 `World.recordKill` 记录（含血亲标记/首杀）。**剑谱 `writeSwordTale`**（`src/simulation/SwordTale.ts`，seeded PRNG 选措辞、确定性稳定）：天劫收束后生成「出身→重大纪事（drama≥3 逐条一行）→总结评语（评分四档+经历维度）→完整纪事（可折叠）」；命名实时联动、随 `RankedSword.tale`/`PendingAppraisal.tale` 存档回看（`openTaleModal`）；败局 `writeDefeatNote` 生成「剑域札记」当场展示。**成就系统**（`src/data/Achievements.ts`，14 个，判定全部来自 chronicle + `GameSave.stats` 累计）：`Game.accumulateStats`/`Game.checkAchievements` 在 `endTribulation`（成败皆结算）与 `finishAppraisal`（万剑之王按 rank）调用；主菜单「成就」面板 `AchievementsPanel.ts`。**坑**：成就与现有规则冲突者一律不做（灭门惨案/五行逆转/师慈徒孝）；`RankedSword` 的 `tale` 字段非空时条目可点击回看；剑谱内容止于剑成、大比战绩不入谱。
 
@@ -132,6 +137,8 @@ src/
 
 ## 九、已知待办 / 暂缓项
 
+- **多地图（用户 v2.5.0 前提出）✅ v2.8.0 已做**：择剑域（荒域/熔岩炼狱/寒潭幽谷，成就解锁，见「五」）。后续可加新图/解锁成就扩充（`MapDB.ts` 加一条即可）。
+- **剑意保存/发送（用户 v2.5.0 前提出，未做）**：玩家剑意可导出/分享给他人（导入谱码），另开一版。
 - **剑尘商店（v2.0.0 构想，大工程）**：主菜单开「剑尘商店」——用剑尘（炼成/大比奖励）给本命剑兑换本局技能或自定义强化。当前剑尘系统已整套下架，待新设计落地（见「五.8」）。
 - **技术债**：
   - ~~`World⇄SwordAgent` 运行时循环依赖~~ ✅ v1.9.2 已打破（`SwordAgent` 对 `World` 改 type-only import，编译期擦除）。
@@ -164,6 +171,8 @@ src/
 ## 十一、文档维护日志
 
 > AI 每次维护本文件后，在**顶部**追加一条（日期 + 一句话说明）。
+
+- **v2.8.0（2026-08-13）**：多地图·择剑域——新增 `src/data/MapDB.ts`（3 图：荒域/熔岩炼狱/寒潭幽谷，成就解锁），`WorldConfig.mapId` + World 构造静态地形 + `World.tick` 专属随机事件（地火喷涌/寒潮涌起），`Game.openMapSelect` 择剑域模态，Renderer 主题色参数化，`GameSave.mapId` 三处同步 + 续档恢复。headless/实机验证通过（三图地形合法、事件避让/到期/频率 0.55 次·日、续档不丢图、build 零错误）。
 
 - **2026-08-13（约定）**：「关机」= 关闭开发服务器/结束会话，勿执行系统 `shutdown`（已记入「八、工作流约定」第 6 条）。
 

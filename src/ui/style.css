@@ -216,11 +216,36 @@ canvas {
   color: var(--gold);
 }
 .menu-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
   margin-top: 22px;
-  align-items: center;
+  width: 100%;
+  max-width: 640px;
+}
+/* v2.8.0：第二行按钮各占两列（4+2 排版） */
+.menu-buttons .menu-span2 {
+  grid-column: span 2;
+}
+.menu-buttons .btn {
+  min-width: 0;
+  padding: 13px 10px;
+  white-space: nowrap;
+}
+/* v2.8.1：下排两个主按钮更大更突出 */
+.menu-buttons .btn.menu-primary {
+  padding: 18px 14px;
+  font-size: 20px;
+  letter-spacing: 8px;
+}
+/* v2.8.0：窄屏改两列（移动端） */
+@media (max-width: 620px) {
+  .menu-buttons {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .menu-buttons .menu-span2 {
+    grid-column: span 2;
+  }
 }
 
 /* ============ 剑胚选择 ============ */
@@ -285,6 +310,236 @@ canvas {
   font-size: 12px;
   color: var(--ink-dim);
   line-height: 1.6;
+}
+
+/* ============ 择剑域（v2.8.0 多地图） ============ */
+.map-select {
+  padding: 4px 0 10px;
+}
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.map-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+.map-card:hover {
+  border-color: var(--gold);
+  transform: translateY(-4px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.map-card.locked {
+  cursor: not-allowed;
+  opacity: 0.72;
+  filter: grayscale(0.5);
+}
+.map-card.locked:hover {
+  border-color: var(--line);
+  transform: none;
+  box-shadow: none;
+}
+.map-swatch {
+  height: 76px;
+  width: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+/* v2.8.0：主题大字（荒/焰/寒）——三卡一眼可辨 */
+.map-swatch-char {
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 0 18px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  user-select: none;
+}
+/* v2.8.0：五行相性区块 */
+.map-affinity {
+  padding: 4px 12px 10px;
+  border-top: 1px dashed var(--line);
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.map-aff-row {
+  font-size: 11px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.map-aff-row.neutral {
+  color: var(--ink-dim);
+}
+.map-name {
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: var(--gold);
+  padding: 10px 12px 4px;
+}
+.map-desc {
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+  padding: 0 12px 10px;
+}
+.map-state {
+  font-size: 12px;
+  color: var(--gold);
+  padding: 0 12px 12px;
+}
+.map-state.locked {
+  color: var(--ink-dim);
+}
+.map-hint {
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin-top: 14px;
+  line-height: 1.6;
+}
+
+/* ============ 剑域两侧栏（v2.8.1：左=气象 / 右=炉材+布阵，分列画布两侧） ============ */
+.side-left,
+.side-right {
+  flex: 0 0 auto;
+  width: 152px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 10px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.28);
+}
+.side-left {
+  border-right: 1px solid var(--line);
+}
+.side-right {
+  border-left: 1px solid var(--line);
+}
+.canvas-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+.aura {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aura-title {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--gold);
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+.aura-line {
+  font-size: 11px;
+  color: var(--ink);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  line-height: 1.5;
+}
+.mat-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mat-btn {
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 1px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+.mat-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.mat-btn.locked {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.mat-btn.locked:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+/* v2.8.1：武装型炉材（天雷/奇遇灵种）——使用后需点击剑域操作，青绿边框区分 */
+.mat-btn.armed {
+  border-color: rgba(110, 200, 160, 0.55);
+  background: linear-gradient(180deg, rgba(110, 200, 160, 0.14), rgba(110, 200, 160, 0.04));
+}
+.mat-btn.armed:hover {
+  border-color: #6ec8a0;
+  color: #a8e6cc;
+}
+.mat-badge {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #6ec8a0;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+.brush-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+.brush-title {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--gold-dim);
+  margin-bottom: 2px;
+}
+.brush-btn {
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 1px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+.brush-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.brush-btn.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 8px rgba(217, 178, 106, 0.35);
 }
 
 /* ============ 炼剑主界面 ============ */
@@ -380,7 +635,8 @@ canvas {
 /* ============ 剑域布阵 (v2.3.0) ============ */
 .canvas-host {
   position: relative;
-  flex-direction: column;
+  flex-direction: row; /* v2.8.1：左栏|画布|右栏 */
+  align-items: stretch;
   gap: 0;
 }
 .formation-bar {
@@ -474,9 +730,44 @@ canvas {
   }
   .canvas-host {
     flex: 0 0 auto;
-    height: 50vh;
-    height: 50dvh; /* 定高，画布才可等比缩放 */
+    height: auto;
     width: auto;
+    flex-direction: column; /* v2.8.1：窄屏侧栏横排（气象/炉材/布阵各成一行） */
+  }
+  .side-left,
+  .side-right {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-bottom: 1px solid var(--line);
+    padding: 8px 10px;
+  }
+  .side-left .aura {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .side-left .aura-title {
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+  .side-right .mat-grid {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .side-right .brush-group {
+    margin-left: auto;
+    border: none;
+    padding: 0;
+    flex-direction: row;
+  }
+  .canvas-wrap {
+    height: 42vh;
+    height: 42dvh;
+    width: 100%;
   }
   .side-panel {
     flex: 0 0 auto;

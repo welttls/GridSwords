@@ -1,4 +1,4 @@
-import type { Genome, SwordState, WorldConfig, WorldModifiers } from '../types';
+import type { Genome, SwordState, WorldConfig, WorldModifiers, Element } from '../types';
 import { SwordAgent } from './SwordAgent';
 import { SimpleNN } from './NeuralNet';
 import { ELEMENT_LABEL } from './Genetics';
@@ -27,6 +27,7 @@ import { clamp, shuffle, uid, randomInt } from '../utils/mathUtils';
 import { maxHpOf, maxEnergyOf } from './swordStats';
 import { eventBus, EVT } from '../utils/eventBus';
 import { Chronicle, type DeathCause } from './Chronicle';
+import { getMap, DEFAULT_MAP_ID, type MapDef } from '../data/MapDB'; // v2.8.0：剑域地图
 
 export interface LineageNode {
   parentId: string;
@@ -60,6 +61,13 @@ export class World {
 
   /** 当前可活动边界 (第10天向内收缩) */
   bounds = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+  /** v2.8.0：本局剑域地图 id（渲染/存档用；缺省 = 荒域） */
+  mapId: string = DEFAULT_MAP_ID;
+  /** v2.8.0：本局地图定义（事件调度用） */
+  private mapDef: MapDef;
+  /** v2.8.0：地图专属事件上次触发 tick（冷却计时） */
+  private lastMapEventTick = 0;
 
   private grid: (string | null)[][];
   private food: number[][];
@@ -110,6 +118,15 @@ export class World {
     this.walls = Array.from({ length: height }, () => new Array<boolean>(width).fill(false));
     this.terrain = Array.from({ length: height }, () => new Array<TerrainType | null>(width).fill(null));
     this.bounds = { minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 };
+    // v2.8.0：应用剑域地图——资源覆盖 + 静态初始地形（避开中心出生区；地形随 eco 持久化）
+    this.mapId = this.config.mapId ?? DEFAULT_MAP_ID;
+    this.mapDef = getMap(this.mapId);
+    const res = this.mapDef.resource;
+    if (res) {
+      if (res.foodMax !== undefined) this.config.foodMax = res.foodMax;
+      if (res.foodRegenRate !== undefined) this.config.foodRegenRate = res.foodRegenRate;
+    }
+    this.mapDef.genStatic?.(this);
   }
 
   // ===== 查询 =====
@@ -308,9 +325,19 @@ export class World {
     return this.grid[y][x];
   }
 
-  /** 受材料影响后的有效攻击欲望 (v2.1.0：天劫收束期间杀性大涨) */
-  effectiveAggression(base: number): number {
-    return clamp(base + this.modifiers.aggressionBonus + (this.config.isShrinking ? TRIBULATION_AGGRESSION_BONUS : 0), 0, 1.5);
+  /** v2.8.0：地图五行相性——本域对本行剑意的永久修正（增益/受制；无 = 中性） */
+  affinityFor(element: Element): import('../data/MapDB').ElementAffinity | null {
+    return this.mapDef.affinity?.[element] ?? null;
+  }
+
+  /** 受材料影响后的有效攻击欲望 (v2.1.0：天劫收束期间杀性大涨；v2.8.0：地图相性杀性修正) */
+  effectiveAggression(base: number, element?: Element): number {
+    const aff = element ? this.affinityFor(element) : null;
+    return clamp(
+      base + this.modifiers.aggressionBonus + (aff?.aggressionBonus ?? 0) + (this.config.isShrinking ? TRIBULATION_AGGRESSION_BONUS : 0),
+      0,
+      1.5,
+    );
   }
 
   /** 受材料影响后的基因突变率偏向 */
@@ -992,6 +1019,16 @@ export class World {
     this.tickCounter++;
     if (this.tickCounter % 50 === 0) {
       this.populationHistory.push(this.swords.size);
+    }
+
+    // v2.8.0：地图专属随机事件——冷却 + 每 tick 概率；天劫收束期禁用（防干扰决胜）
+    const ev = this.mapDef?.event;
+    if (ev && !this.config.isShrinking && this.tickCounter - this.lastMapEventTick >= ev.cooldownTicks) {
+      if (Math.random() < ev.perTickChance) {
+        this.lastMapEventTick = this.tickCounter;
+        const text = ev.onTrigger(this);
+        eventBus.emit(EVT.LOG, { text });
+      }
     }
   }
 }

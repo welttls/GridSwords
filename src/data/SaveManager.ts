@@ -72,6 +72,8 @@ export interface GameSave {
   dailyDropKind?: 'mild' | 'tide' | 'fierce' | 'auto' | 'none' | null;
   /** 本局免剑潮弹窗 (v1.10.0)：勾选后每日自动按上次选择投放 */
   dailyDropLocked?: boolean;
+  /** v2.8.0：本局剑域地图 id（续玩恢复；旧档兜底 null=荒域） */
+  mapId?: string | null;
   swords: SwordState[];
   rootId: string | null;
   maxGeneration: number;
@@ -108,6 +110,7 @@ export function defaultSave(): GameSave {
     formation: { seed: 0 },
     dailyDropKind: null,
     dailyDropLocked: false,
+    mapId: null, // v2.8.0
     swords: [],
     rootId: null,
     maxGeneration: 1,
@@ -178,6 +181,8 @@ export class SaveManager {
       // v2.3.0：布阵次数兜底（旧档含熔岩/深水字段 → 精简为仅奇遇种子）
       if (!save.formation || typeof save.formation !== 'object') save.formation = { seed: 0 };
       else save.formation = { seed: save.formation.seed ?? 0 };
+      // v2.8.0：剑域地图兜底（旧档无此字段 → null=荒域）
+      if (typeof save.mapId !== 'string') save.mapId = null;
       return save;
     } catch {
       return defaultSave();

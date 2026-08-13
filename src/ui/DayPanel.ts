@@ -1,7 +1,6 @@
 import type { Game } from '../Game';
 import { el } from '../utils/dom';
 import { openModal, toast } from './modals';
-import { recipesSorted, unlockLabel } from '../data/RecipeDB';
 
 /** 每日剑潮类型 */
 export type DailyDropKind = 'mild' | 'tide' | 'fierce' | 'auto' | 'none';
@@ -14,59 +13,10 @@ export const DROP_OPTIONS: { kind: DailyDropKind; name: string; desc: string }[]
 ];
 
 /**
- * 炉府材料面板：道具次数使用，随时可用，改变整个炼剑炉的属性。
- * v2.6.0：顶部展示「当前剑域气象」——已生效的修正一目了然（不再抽象）。
+ * v2.6.0 / v2.8.0：当前剑域气象文案（读 World.modifiers + 天雷今日剩余）。
+ * v2.8.0 起常驻展示于剑域画布上方操作条（不再藏在炉材弹窗里），由 Game/HUD 调用。
  */
-export function openFurnacePanel(game: Game, onClose?: () => void): void {
-  const unlocked = new Set(game.save.unlockedMaterialIds);
-  const counts = game.save.materialCounts;
-  const body = el('div', 'material-list');
-
-  // —— v2.6.0：当前剑域气象（已生效修正 + 已投入炉材） ——
-  const aura = buildMaterialAura(game);
-  if (aura.length > 0) {
-    const auraBox = el('div', 'material-aura');
-    auraBox.appendChild(el('div', 'material-aura-title', '当前剑域气象'));
-    for (const l of aura) auraBox.appendChild(el('div', 'material-aura-line', l));
-    body.appendChild(auraBox);
-  }
-
-  // 本局各炉材已用次数（来自剑域纪事 material 事件）
-  const usedMap = new Map<string, number>();
-  if (game.world) {
-    for (const e of game.world.chronicle.all()) {
-      if (e.kind === 'material' && e.data?.id) usedMap.set(e.data.id, (usedMap.get(e.data.id) ?? 0) + 1);
-    }
-  }
-
-  for (const m of recipesSorted()) {
-    // P1-13：缺键回退 0 而非 m.count，与实际消耗口径 (materialCounts[id] ?? 0) 保持一致
-    const remaining = unlocked.has(m.id) ? counts[m.id] ?? 0 : 0;
-    const used = usedMap.get(m.id) ?? 0;
-    const card = el('div', 'material-card' + (remaining <= 0 ? ' locked' : ''));
-    const name = el('div', 'material-name', `${m.name} ×${remaining}`);
-    const desc = el('div', 'material-desc', m.description);
-    const meta = el('div', 'material-meta', used > 0 ? `本局已用 ${used} 次` : '');
-    if (remaining > 0) {
-      card.append(name, desc, meta);
-      card.addEventListener('click', () => {
-        overlay.remove();
-        game.applyMaterial(m.id);
-        onClose?.();
-      });
-    } else if (unlocked.has(m.id)) {
-      card.append(name, desc, meta, el('div', 'material-lock', '已耗尽'));
-    } else {
-      card.append(name, desc, el('div', 'material-lock', `🔒 ${unlockLabel(m.unlock)} 解锁`));
-    }
-    body.appendChild(card);
-  }
-
-  const overlay = openModal('炉府材料 · 次数制', body, { width: 560, onClose });
-}
-
-/** v2.6.0：当前剑域气象文案（读 World.modifiers + 天雷今日剩余） */
-function buildMaterialAura(game: Game): string[] {
+export function buildMaterialAura(game: Game): string[] {
   const w = game.world;
   const lines: string[] = [];
   if (!w) return lines;

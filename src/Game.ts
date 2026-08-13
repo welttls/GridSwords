@@ -4,9 +4,9 @@ import { World } from './simulation/World';
 import { SwordAgent } from './simulation/SwordAgent';
 import { SimpleNN } from './simulation/NeuralNet';
 import { WorldRenderer } from './ui/Renderer';
-import { HUD, type FormationBrush } from './ui/HUD';
+import { HUD, type FormationBrush, type MaterialItem } from './ui/HUD';
 import { buildMenu, buildEmbryoSelect, buildElementCard } from './ui/MenuScene';
-import { openFurnacePanel, openDailyDropPanel, openTidePanel, type DailyDropKind } from './ui/DayPanel';
+import { buildMaterialAura, openDailyDropPanel, openTidePanel, type DailyDropKind } from './ui/DayPanel';
 import { openAudioPanel } from './ui/AudioPanel'; // v2.6.1：炼剑界面音律面板（背景乐/音效 开关+滑块合一）
 import { buildAppraisal, type AppraisalData, type EvoNode } from './ui/AppraisalScene';
 import { writeSwordTale, writeDefeatNote } from './simulation/SwordTale';
@@ -17,10 +17,11 @@ import { openCodex } from './ui/CodexView';
 import { openAchievements } from './ui/AchievementsPanel';
 import { ACHIEVEMENTS, type AchievementCtx } from './data/Achievements';
 import { SaveManager, defaultSave, type GameSave } from './data/SaveManager';
-import { getMaterial, RECIPES } from './data/RecipeDB';
+import { getMaterial, RECIPES, recipesSorted, unlockLabel } from './data/RecipeDB';
 import { RankingManager } from './data/RankingManager';
 import { SWORD_ARTS } from './data/SwordArts';
 import { NPC_OPPONENTS } from './data/NPCs';
+import { getMap, MAPS, type ElementAffinity } from './data/MapDB'; // v2.8.0：剑域地图（择剑域）
 import { randomGenome, genomeSimilarity, genomeSum, ELEMENT_LABEL, randomWildGenome, randomMildGenome, randomFierceGenome } from './simulation/Genetics';
 import { eventBus, EVT } from './utils/eventBus';
 import { audio } from './audio/AudioManager';
@@ -91,9 +92,8 @@ export class Game {
   emergenceCelebrated = false;
   selectedSwordId: string | null = null;
   emergenceTargetId: string | null = null;
-  /** v2.3.0：布阵模式（地图编辑：熔岩/深水/恢复，v2.6.0 起纯地形） */
-  formationMode = false;
-  formationBrush: FormationBrush = 'lava';
+  /** v2.8.0：布阵笔刷（常驻；null=未武装，点击画布聚焦灵鉴） */
+  formationBrush: FormationBrush | null = null;
   /** v2.3.0：手动天雷——武装后点击剑域任意处降雷 */
   lightningArmed = false;
   /** v2.6.0：奇遇灵种——炉材使用后武装，点击剑域自选位置种下（与天雷一致的选位交互） */
@@ -104,9 +104,7 @@ export class Game {
   private lastReseedPromptDay = -1;
   private tickAccumulator = 0;
   private battleAccumulator = 0;
-  /** v2.7.1：进入布阵前的暂停态（退出时恢复，不吞玩家暂停意图） */
-  private formationWasPaused = false;
-  /** v2.7.1：打开剑潮/音律/炉材面板前的暂停态（关闭时恢复） */
+  /** v2.7.1：打开剑潮/音律面板前的暂停态（关闭时恢复） */
   private panelWasPaused = false;
 
   appraisedRanked: RankedSword | null = null;
@@ -165,7 +163,7 @@ export class Game {
         this.placeEncounterSeedAt(x, y);
         return;
       }
-      if (this.formationMode) return;
+      if (this.formationBrush) return;
       const id = this.world.swordIdAt(x, y);
       this.focusSword(id);
     });
@@ -180,7 +178,7 @@ export class Game {
       };
     };
     this.canvas.addEventListener('pointerdown', (e) => {
-      if (!this.formationMode) return;
+      if (!this.formationBrush) return;
       painting = true;
       const c = toCell(e);
       lastPaintKey = `${c.x},${c.y}`;
@@ -265,7 +263,7 @@ export class Game {
 
   // ================= 开局 =================
   /** P0-3：有进行中的局/鉴定/大比时，先确认是否放弃再开新局 */
-  startNewRun(element: Element): void {
+  startNewRun(element: Element, mapId: string): void {
     if (this.save.activeRun || this.save.pendingScene) {
       const body = el('div', '');
       body.appendChild(el('p', '', '当前仍有一局炼剑未竟。'));
@@ -279,17 +277,74 @@ export class Game {
       cancel.addEventListener('click', () => overlay.remove());
       confirm.addEventListener('click', () => {
         overlay.remove();
-        this.doStartNewRun(element);
+        this.doStartNewRun(element, mapId);
       });
       return;
     }
-    this.doStartNewRun(element);
+    this.doStartNewRun(element, mapId);
   }
 
-  private doStartNewRun(element: Element): void {
+  /** v2.8.0：择剑域——五行剑胚选定后选择本局地图（已解锁可点选；锁定显示解锁成就名） */
+  openMapSelect(element: Element): void {
+    const body = el('div', 'map-select');
+    const grid = el('div', 'map-grid');
+    const mapName = (id: string | null): string => {
+      const a = id ? ACHIEVEMENTS.find((x) => x.id === id) : null;
+      return a ? a.name : '';
+    };
+    // v2.8.0：五行相性展示
+    const ELEM_ICON: Record<string, string> = { fire: '🔥', water: '💧', metal: '⚙️', wood: '🌳', earth: '⛰️' };
+    const affParts = (a: ElementAffinity): string => {
+      const p: string[] = [];
+      if (a.atkBonus) p.push(`攻伐${a.atkBonus > 0 ? '+' : ''}${a.atkBonus}`);
+      if (a.aggressionBonus) p.push(`杀性${a.aggressionBonus > 0 ? '+' : ''}${a.aggressionBonus}`);
+      if (a.costMult) p.push(`耗神×${a.costMult}`);
+      if (a.regenMult) p.push(`回血×${a.regenMult}`);
+      if (a.energyGainMult) p.push(`采气回能×${a.energyGainMult}`);
+      return p.join(' ');
+    };
+    for (const m of MAPS) {
+      const card = el('div', 'map-card');
+      const unlocked = !m.unlockAchievementId || this.save.achievements.includes(m.unlockAchievementId);
+      const theme = m.theme;
+      const swatch = el('div', 'map-swatch');
+      swatch.style.background = `linear-gradient(135deg, #${theme.bg.toString(16).padStart(6, '0')} 0%, #${theme.lava.toString(16).padStart(6, '0')} 100%)`;
+      swatch.appendChild(el('span', 'map-swatch-char', m.char)); // v2.8.0：主题大字（荒/焰/寒）
+      card.appendChild(swatch);
+      card.appendChild(el('div', 'map-name', m.name));
+      card.appendChild(el('div', 'map-desc', m.desc));
+      // v2.8.0：五行相性区块
+      const affBox = el('div', 'map-affinity');
+      if (m.affinity) {
+        (Object.keys(m.affinity) as Element[]).forEach((e) => {
+          const a = m.affinity![e]!;
+          affBox.appendChild(el('div', 'map-aff-row', `${ELEM_ICON[e] ?? ''} ${ELEMENT_LABEL[e]}行·${a.label}　${affParts(a)}`));
+        });
+      } else {
+        affBox.appendChild(el('div', 'map-aff-row neutral', '诸行平等，无增无减'));
+      }
+      card.appendChild(affBox);
+      if (unlocked) {
+        card.appendChild(el('div', 'map-state', '✔ 已解锁'));
+        card.addEventListener('click', () => {
+          overlay.remove();
+          this.startNewRun(element, m.id);
+        });
+      } else {
+        card.classList.add('locked');
+        card.appendChild(el('div', 'map-state locked', `🔒 需成就「${mapName(m.unlockAchievementId)}」`));
+      }
+      grid.appendChild(card);
+    }
+    body.appendChild(grid);
+    body.appendChild(el('p', 'map-hint', '不同剑域地形、氛围、天象与五行相性各异——先炼成可解锁之图，再入新域。'));
+    const overlay = openModal('择 剑 域', body, { width: 640 });
+  }
+
+  private doStartNewRun(element: Element, mapId: string): void {
     this.embryoGenome = randomGenome(element);
 
-    const world = new World();
+    const world = new World({ mapId });
     const cx = Math.floor(world.config.width / 2);
     const cy = Math.floor(world.config.height / 2);
     const st: SwordState = {
@@ -347,14 +402,15 @@ export class Game {
     }
     this.save.feedDropped = 0;
     // v2.6.0：布阵纯地形（熔岩/深水/恢复均不限次）；奇遇改由炉材「奇遇灵种」直接武装选位，不再有布阵次数
-    this.formationMode = false;
-    this.formationBrush = 'lava';
+    // v2.8.0：布阵笔刷常驻（null=未武装；熔岩/深水/恢复均不限次）
+    this.formationBrush = null;
     this.lightningArmed = false;
     this.seedArmed = false;
 
     this.save.activeRun = true;
     this.save.embryoGenome = this.embryoGenome;
     this.save.day = 1;
+    this.save.mapId = mapId; // v2.8.0：本局剑域地图（续玩恢复）
     // v1.10.0：新局重置剑潮记忆 (本局内语义)
     this.save.dailyDropKind = null;
     this.save.dailyDropLocked = false;
@@ -381,7 +437,7 @@ export class Game {
       this.showMenu();
       return;
     }
-    const world = new World({ currentDay: this.save.day });
+    const world = new World({ currentDay: this.save.day, mapId: this.save.mapId ?? undefined }); // v2.8.0：续玩恢复剑域地图
     world.tickCounter = this.save.tickCounter;
     world.maxGeneration = this.save.maxGeneration;
     world.rootId = this.save.rootId;
@@ -436,7 +492,7 @@ export class Game {
 
   /** 由存档剑意状态重建 SwordAgent (鉴定/大比续玩，仅需 .state) */
   private agentFromState(st: SwordState): SwordAgent {
-    const w = new World({ currentDay: this.save.day });
+    const w = new World({ currentDay: this.save.day, mapId: this.save.mapId ?? undefined }); // v2.8.0：剑域地图
     w.tickCounter = this.save.tickCounter;
     // v1.12.0：按剑心境界推导隐藏层容量重建 NN
     const brain = new SimpleNN(mindSizes(st.mindRealm ?? 0), false);
@@ -491,18 +547,19 @@ export class Game {
     // P1-1：销毁旧 HUD，解绑其 LOG 监听，防止多局重复触发
     this.hud?.destroy?.();
     this.hud = new HUD(this.host);
-    this.hud.onMaterialClick(() => this.openFurnacePanel());
     this.hud.onTideClick(() => this.openTidePanel()); // v1.11.0
     this.hud.onReseedClick(() => this.tryReseed()); // v1.11.0
-    this.hud.onFormationClick(() => this.toggleFormationMode()); // v2.3.0 布阵
     this.hud.onAudioClick(() => this.openAudioPanel()); // v2.6.1 音律（开关+滑块合一）
     this.hud.focusHandler = (id) => this.focusSword(id);
+    // v2.8.0：顶栏显示本局剑域名（辨识当前剑域）
+    this.hud.setMapName(getMap(this.world?.config.mapId)?.name ?? '荒域');
     this.refreshHudControls();
-    this.mountCanvas(this.hud.canvasHost);
+    this.mountCanvas(this.hud.canvasSlot); // v2.8.1：画布挂到两侧栏之间的中央容器
     this.renderer?.destroy?.();
     // v2.2.1：先销毁旧渲染器再清空并销毁舞台残留（Pixi v7 removeChildren 只接受索引）
     for (const child of this.app.stage.removeChildren()) child.destroy();
-    this.renderer = new WorldRenderer(this.app.stage, GRID_WIDTH, GRID_HEIGHT, 10);
+    // v2.8.0：画布主题随本局剑域地图（荒域 = 原配色）
+    this.renderer = new WorldRenderer(this.app.stage, GRID_WIDTH, GRID_HEIGHT, 10, false, getMap(this.world?.config.mapId)?.theme);
     this.frame = 0;
     if (this.world) {
       this.renderer.render(this.world, 0);
@@ -522,14 +579,22 @@ export class Game {
       },
       () => this.togglePause(),
     );
-    this.hud?.setFurnaceEnabled(this.hasMaterialLeft() && this.scene === 'forge');
     this.hud?.setFeedState(this.feedRemaining(), () => this.dropFood());
-    // v2.3.0：布阵模式下刷新当前笔刷（v2.6.0：熔岩/深水/恢复，无次数）
-    if (this.formationMode) this.hud?.updateFormation(this.formationBrush);
+    // v2.8.0：布阵笔刷常驻高亮
+    this.hud?.setBrush(this.formationBrush, (b) => this.onBrushClick(b));
   }
 
-  private hasMaterialLeft(): boolean {
-    return Object.values(this.save.materialCounts).some((c) => c > 0);
+  /** v2.8.0：炉材常驻按钮数据（剩余次数/解锁态/说明） */
+  private materialItems(): MaterialItem[] {
+    const unlocked = new Set(this.save.unlockedMaterialIds);
+    return recipesSorted().map((m) => ({
+      id: m.id,
+      name: m.name,
+      count: unlocked.has(m.id) ? (this.save.materialCounts[m.id] ?? 0) : 0,
+      unlocked: unlocked.has(m.id),
+      desc: m.description,
+      lock: unlockLabel(m.unlock),
+    }));
   }
 
   /** 当前仍可布霖的庚金之气团数 */
@@ -537,53 +602,35 @@ export class Game {
     return DAILY_FOOD_DROP - this.save.feedDropped;
   }
 
-  // ================= 布阵（地图编辑 v2.3.0） =================
-  /** 布阵按钮：进入/退出编辑模式（进入暂停，退出恢复走时） */
-  toggleFormationMode(): void {
+  // ================= 布阵（地图编辑 v2.8.0 常驻化） =================
+  /** v2.8.0：布阵笔刷——点击拿起/收起（与天雷/奇遇武装互斥；不暂停走时） */
+  private onBrushClick(b: FormationBrush): void {
     if (this.scene !== 'forge' || !this.world) return;
-    if (this.formationMode) {
-      this.exitFormationMode();
-      return;
-    }
     if (this.world.config.isShrinking) {
       toast('天劫收束之际，剑域壁垒已固，不可布阵。');
       return;
     }
-    this.lightningArmed = false; // v2.3.0：进入布阵取消武装天雷，避免点击冲突
-    this.seedArmed = false; // v2.6.0：进入布阵取消奇遇待放置
-    this.formationMode = true;
-    this.formationWasPaused = this.paused; // v2.7.1：记住进入前暂停态
-    this.paused = true;
-    this.refreshHudControls();
-    this.host.classList.add('forming');
-    this.hud?.setFormationMode(true, this.formationBrush, (b) => {
+    if (this.formationBrush === b) {
+      this.formationBrush = null; // 再点同一笔刷 → 收起（恢复点击聚焦灵鉴）
+    } else {
       this.formationBrush = b;
-      this.hud?.updateFormation(b);
-    }, () => this.exitFormationMode());
-  }
-
-  private exitFormationMode(): void {
-    this.formationMode = false;
-    this.host.classList.remove('forming');
-    this.hud?.setFormationMode(false, this.formationBrush, () => {}, () => {});
-    if (this.scene === 'forge') {
-      this.paused = this.formationWasPaused; // v2.7.1：恢复进入前暂停态（不吞玩家暂停意图）
-      this.refreshHudControls();
+      this.lightningArmed = false; // 与天雷/奇遇互斥，防点击冲突
+      this.seedArmed = false;
     }
+    this.refreshHudControls();
   }
 
-  /** 离开炼剑界面：退出布阵模式（场景切换时清理） */
+  /** 离开炼剑界面：收起布阵笔刷与武装（场景切换时清理） */
   private leaveFormation(): void {
-    this.formationMode = false;
-    this.host.classList.remove('forming');
-    this.lightningArmed = false; // v2.3.0：离场取消武装天雷
-    this.seedArmed = false; // v2.6.0：离场取消奇遇待放置
+    this.formationBrush = null;
+    this.lightningArmed = false; // 离场取消武装天雷
+    this.seedArmed = false; // 离场取消奇遇待放置
   }
 
   /** 在网格 (x,y) 处执行当前笔刷（熔岩/深水/恢复，v2.6.0 起纯地形编辑） */
   private paintFormation(x: number, y: number): void {
     const w = this.world;
-    if (!w || this.scene !== 'forge' || !this.formationMode) return;
+    if (!w || this.scene !== 'forge' || !this.formationBrush) return;
     if (w.config.isShrinking) return;
     if (!w.inBounds(x, y)) return;
     // 壁垒不可布阵（熔岩自身不在此列——恢复熔岩需放行）
@@ -613,7 +660,6 @@ export class Game {
         w.chronicle.record('formation', { data: { brush: 'clear' } }); // v2.5.0：剑域纪事
         break;
     }
-    this.hud?.updateFormation(this.formationBrush);
     this.saveGame();
   }
 
@@ -952,19 +998,6 @@ export class Game {
     this.refreshHudControls();
   }
 
-  openFurnacePanel(): void {
-    if (this.scene !== 'forge') return;
-    this.panelWasPaused = this.paused; // v2.7.1：记住进入前暂停态
-    this.paused = true;
-    this.refreshHudControls();
-    openFurnacePanel(this, () => {
-      if (this.scene === 'forge') {
-        this.paused = this.panelWasPaused; // v2.7.1：恢复进入前暂停态
-        this.refreshHudControls();
-      }
-    });
-  }
-
   /** 每日子时剑潮投放 (玩家选择或默许天意) */
   private openDailyDropPanelForDay(day: number): void {
     if (this.scene !== 'forge') return;
@@ -1103,7 +1136,7 @@ export class Game {
         break;
       // v2.6.0：奇遇灵种——武装选位（不再经布阵模式）
       case 'encounterSeed':
-        if (this.formationMode) this.exitFormationMode(); // 若在布阵中则退出，避免冲突
+        this.formationBrush = null; // v2.8.0：与布阵笔刷互斥
         this.lightningArmed = false;
         this.seedArmed = true;
         toast('🌱 奇遇灵种已启，点击剑域自选位置种下！');
@@ -1111,7 +1144,7 @@ export class Game {
       case 'manualLightning':
         // v2.3.0：天雷——武装一次引雷，点击剑域任意处降下雷霆（与天劫天雷同伤/特效）
         this.lightningArmed = true;
-        if (this.formationMode) this.exitFormationMode(); // 若在布阵中则退出，避免冲突并同步 UI
+        this.formationBrush = null; // v2.8.0：与布阵笔刷互斥
         this.seedArmed = false;
         toast('⚡ 天雷已引，点击剑域任意处降下雷霆！');
         break;
@@ -1206,8 +1239,12 @@ export class Game {
           this.saveGame();
         }
       }
-      if (this.frame % 6 === 0) this.hud?.update(this.world);
-      this.hud?.setFurnaceEnabled(this.hasMaterialLeft() && !this.tribulationEnded);
+      if (this.frame % 6 === 0) {
+        this.hud?.update(this.world);
+        // v2.8.0：剑域气象 + 炉材常驻（不再弹窗）
+        this.hud?.setAura(buildMaterialAura(this));
+        this.hud?.setMaterials(this.materialItems(), (id) => this.applyMaterial(id));
+      }
       this.hud?.setFeedState(this.feedRemaining(), () => this.dropFood());
     } else if (this.scene === 'tournament' && this.battle && !this.battle.ended) {
       // 玩家选招时暂停蓄条
@@ -1840,6 +1877,7 @@ export class Game {
       formation: this.save.formation, // v2.3.0：布阵次数
       dailyDropKind: this.save.dailyDropKind, // v2.7.1：补导出（原漏同步→刷新丢剑潮偏好）
       dailyDropLocked: this.save.dailyDropLocked, // v2.7.1
+      mapId: this.save.mapId, // v2.8.0：本局剑域地图
       swords: this.world && this.scene === 'forge'
         ? [...this.world.swords.values()].map((a) => ({
             ...a.state,

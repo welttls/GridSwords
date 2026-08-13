@@ -183,7 +183,7 @@ export class SwordAgent {
   ): number[] {
     const bias = [0, 0, 0, 0];
     const hpRatio = input[25];
-    const aggr = this.world.effectiveAggression(this.state.genome.aggression);
+    const aggr = this.world.effectiveAggression(this.state.genome.aggression, this.state.genome.element); // v2.8.0：相性杀性
 
     // 饥饿驱力：全盘扫描最近食物 (v1.12.0：权重上调 + 近距强采食，减少「绕食不食」)
     const hunger = this.hungerLevel();
@@ -278,7 +278,7 @@ export class SwordAgent {
     if (!this.huntTargetId) return null;
     const other = this.world.swords.get(this.huntTargetId);
     // 杀性越高，放弃追击的血线越低、追击范围越大（温和系易罢手）
-    const aggr = this.world.effectiveAggression(this.state.genome.aggression);
+    const aggr = this.world.effectiveAggression(this.state.genome.aggression, this.state.genome.element); // v2.8.0：相性杀性
     const giveUpHp = 0.15 * (1 - aggr * 0.6); // 杀性 0.9→0.069 / 0.3→0.123
     if (!other || other.state.id === this.state.id || (this.world.kinProtected() && this.world.isKin(this, other)) || this.state.hp / maxHpOf(this.state) < giveUpHp) {
       this.huntTargetId = null; // 目标陨落/血亲/自身重伤，放弃追击
@@ -293,12 +293,13 @@ export class SwordAgent {
     return { dx, dy };
   }
 
-  /** 有效攻伐 (受词条/buff 影响；v2.2.1：移除未启用的 battleMods 剑诀分支——宗门大比走 Duel Fighter，野外从不赋值) */
+  /** 有效攻伐 (受词条/buff 影响；v2.8.0：地图五行相性攻伐修正——如熔岩益火/克金) */
   effectiveSharpness(): number {
     let s = this.state.genome.sharpness;
     if (this.state.genome.affixes.includes('kill5')) s += 1.5; // 斩念成性
     if (this.state.buffAtkMult) s *= this.state.buffAtkMult;
     if (this.counterReady) s *= 1.5;
+    s += this.world.affinityFor(this.state.genome.element)?.atkBonus ?? 0;
     return s;
   }
 
@@ -376,7 +377,9 @@ export class SwordAgent {
       this.world.removeFood(x, y);
       // v2.0.0：水系「生生不息」——采食回能 ×1.35（感知高觅食强、吃得多回能多，防饿死；水存活前列，与土/火争前二）
       // 注意：采食不钳制上限——分化阈值(=maxEnergy)在扣精元消耗后才检查，若 clamp 到阈值会锁死在 79.98 永不分化
-      this.state.energy += food * (this.state.genome.element === 'water' ? 1.35 : 1);
+      // v2.8.0：地图相性采食回能修正（如熔岩薪火添势、寒潭如鱼得水）
+      this.state.energy +=
+        food * (this.state.genome.element === 'water' ? 1.35 : 1) * (this.world.affinityFor(this.state.genome.element)?.energyGainMult ?? 1);
       this.behavior.eatCount++;
       eventBus.emit(EVT.EAT, { x, y, intensity: food });
       this.world.moveSword(this, x, y);
@@ -526,6 +529,8 @@ export class SwordAgent {
     if (mods.temperature === 'cold') cost *= 1.5;
     if (mods.temperature === 'breeze') cost *= 0.6;
     if (this.state.genome.affixes.includes('eat30')) cost *= 0.7; // 吞金成性
+    // v2.8.0：地图五行相性——本域对本行剑意的耗神修正（如炎域煎灼水行耗神加剧 / 金生丽水耗神略省）
+    cost *= this.world.affinityFor(g.element)?.costMult ?? 1;
     // v2.2.1：battleMods 剑诀修饰已移除（宗门大比走 Duel Fighter，野外从不赋值）
     this.state.energy -= cost;
 
@@ -535,8 +540,11 @@ export class SwordAgent {
       return;
     }
 
-    // 缓慢回气 (v2.1.0：水系「生生不息」回血 ×2.0 保留，与采食回能 ×1.35 共同构成水系差异化)
-    const regen = HP_REGEN_PER_TICK * (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1);
+    // 缓慢回气 (v2.1.0：水系「生生不息」回血 ×2.0 保留，与采食回能 ×1.35 共同构成水系差异化；v2.8.0：地图相性回血修正)
+    const regen =
+      HP_REGEN_PER_TICK *
+      (this.state.genome.element === 'water' ? WATER_REGEN_MULT : 1) *
+      (this.world.affinityFor(this.state.genome.element)?.regenMult ?? 1);
     this.state.hp = Math.min(maxHpOf(this.state), this.state.hp + regen);
     if (this.state.hp < this.behavior.minHp) this.behavior.minHp = this.state.hp;
 

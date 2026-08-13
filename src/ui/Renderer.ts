@@ -12,6 +12,26 @@ const LAVA_COLOR = 0xff4a12;      // v2.3.0：熔岩
 const DEEPWATER_COLOR = 0x1a5a9a; // v2.3.0：深水
 const MAX_PARTICLES = 500;
 
+/** v2.8.0：剑域主题配色（随地图变化；缺省 = 荒域原色） */
+export interface WorldRendererTheme {
+  bg: number;        // 背景
+  chaos: number;     // 天劫吞噬区
+  wall: number;      // 火墙/障碍
+  lava: number;      // 熔岩
+  deepwater: number; // 深水
+  food: number;      // 庚金之气
+}
+
+/** 荒域（默认）主题——保持 v2.7.1 及之前的原色 */
+export const DEFAULT_THEME: WorldRendererTheme = {
+  bg: 0x0c1017,
+  chaos: CHAOS_COLOR,
+  wall: WALL_COLOR,
+  lava: LAVA_COLOR,
+  deepwater: DEEPWATER_COLOR,
+  food: FOOD_COLOR,
+};
+
 /** 单个粒子 (v2.7.1：不再每粒一个 Graphics——共享 pg 每帧重绘，数百粒子仅 1 draw call) */
 interface Particle {
   x: number;
@@ -68,6 +88,7 @@ export class WorldRenderer {
   private width: number;
   private height: number;
   private showBars: boolean;
+  private theme: WorldRendererTheme;
   private selectedId: string | null = null;
   private particles: Particle[] = [];
   private particleLayer: Container;
@@ -83,12 +104,13 @@ export class WorldRenderer {
   private hThunder = (e: ParticleEvent) => this.onThunder(e);
   private hSkill = (e: SkillVisual) => this.onSkill(e);
 
-  constructor(container: Container, width: number, height: number, cell: number, showBars = false) {
+  constructor(container: Container, width: number, height: number, cell: number, showBars = false, theme: WorldRendererTheme = DEFAULT_THEME) {
     this.container = container;
     this.width = width;
     this.height = height;
     this.cell = cell;
     this.showBars = showBars;
+    this.theme = theme;
     this.bg = new Graphics();
     this.g = new Graphics();
     this.eg = new Graphics();
@@ -98,7 +120,7 @@ export class WorldRenderer {
     this.effectLayer.addChild(this.eg);
     this.particleLayer.addChild(this.pg);
     container.addChild(this.bg, this.g, this.particleLayer, this.effectLayer);
-    this.bg.beginFill(0x0c1017);
+    this.bg.beginFill(theme.bg); // v2.8.0：背景随剑域主题
     this.bg.drawRect(0, 0, width * cell, height * cell);
     this.bg.endFill();
 
@@ -583,7 +605,7 @@ export class WorldRenderer {
     const b = world.bounds;
 
     // 混沌区 (已被天劫吞噬的区域)
-    g.beginFill(CHAOS_COLOR, 0.92);
+    g.beginFill(this.theme.chaos, 0.92);
     if (b.minX > 0) g.drawRect(0, 0, b.minX * cell, h * cell);
     if (b.maxX < w - 1) g.drawRect((b.maxX + 1) * cell, 0, (w - b.maxX - 1) * cell, h * cell);
     if (b.minY > 0) g.drawRect(b.minX * cell, 0, (b.maxX - b.minX + 1) * cell, b.minY * cell);
@@ -597,7 +619,7 @@ export class WorldRenderer {
       const inside = x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
       if (inside) {
         const pulse = 0.5 + 0.35 * Math.sin(tick * 0.12 + x * 1.7 + y * 1.3);
-        g.beginFill(WALL_COLOR, pulse);
+        g.beginFill(this.theme.wall, pulse); // v2.8.0：主题色
         g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
         g.endFill();
       }
@@ -612,7 +634,7 @@ export class WorldRenderer {
       const t = world.terrainAt(x, y);
       if (t === 'lava') {
         const pulse = 0.75 + 0.25 * Math.sin(tick * 0.16 + x * 2.3 + y * 1.9);
-        g.beginFill(LAVA_COLOR, pulse);
+        g.beginFill(this.theme.lava, pulse); // v2.8.0：主题色
         g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
         g.endFill();
         g.beginFill(0xffd76a, 0.5 + 0.3 * Math.sin(tick * 0.22 + x * 3.1 + y * 2.7));
@@ -620,7 +642,7 @@ export class WorldRenderer {
         g.endFill();
       } else if (t === 'deepwater') {
         const pulse = 0.5 + 0.2 * Math.sin(tick * 0.1 + x * 1.3 + y * 1.7);
-        g.beginFill(DEEPWATER_COLOR, pulse);
+        g.beginFill(this.theme.deepwater, pulse); // v2.8.0：主题色
         g.drawRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
         g.endFill();
         // 波光纹理
@@ -643,7 +665,7 @@ export class WorldRenderer {
         const cy = (y + 0.5) * cell;
         const big = value > 15; // 陨星铁母更大更亮
         const pulse = 0.55 + 0.35 * Math.sin(tick * 0.2 + x + y);
-        g.beginFill(FOOD_COLOR, pulse);
+        g.beginFill(this.theme.food, pulse); // v2.8.0：主题色
         g.drawCircle(cx, cy, big ? cell * 0.42 : cell * 0.3);
         g.endFill();
         g.beginFill(0xfff6d8, 0.8);
@@ -652,22 +674,38 @@ export class WorldRenderer {
       }
     }
 
-    // v2.3.0：奇遇种子——金色脉动灵光（可被熔岩封锁，瞬移可渡）
+    // v2.3.0 / v2.8.1：奇遇种子——「翡翠灵珠」：青绿大珠 + 呼吸光环 + 旋转十字闪光
+    // （与庚金的金色光点一眼区分；可被熔岩封锁，瞬移可渡）
     if (world.encounterSeed) {
       const sx = world.encounterSeed.x;
       const sy = world.encounterSeed.y;
       if (sx >= b.minX && sx <= b.maxX && sy >= b.minY && sy <= b.maxY) {
         const cx = (sx + 0.5) * cell;
         const cy = (sy + 0.5) * cell;
-        const pulse = 0.55 + 0.45 * Math.sin(tick * 0.18);
-        g.lineStyle(cell * 0.1, 0xffd76a, 0.35 + 0.3 * Math.sin(tick * 0.18));
-        g.drawCircle(cx, cy, cell * 0.52);
+        const ph = tick * 0.06;
+        const breathe = 0.62 + 0.38 * Math.sin(ph);
+        // 外圈呼吸光环（两圈，青绿）
+        g.lineStyle(cell * 0.12, 0x5ee8a0, 0.32 * breathe);
+        g.drawCircle(cx, cy, cell * (0.55 + 0.2 * breathe));
+        g.lineStyle(cell * 0.08, 0x8affc0, 0.45 * (0.6 + 0.4 * Math.sin(ph + 1.3)));
+        g.drawCircle(cx, cy, cell * (0.85 + 0.22 * Math.sin(ph + 1.3)));
+        // 旋转十字闪光
+        const rot = ph * 1.1;
+        const arm = cell * (0.95 + 0.28 * Math.sin(ph * 2));
+        const ax = arm * Math.cos(rot);
+        const ay = arm * Math.sin(rot);
+        g.lineStyle(cell * 0.1, 0x5ee8a0, 0.6);
+        g.moveTo(cx - ax, cy - ay);
+        g.lineTo(cx + ax, cy + ay);
+        g.moveTo(cx - ay, cy - ax);
+        g.lineTo(cx + ay, cy + ax);
         g.lineStyle(0);
-        g.beginFill(0xfff0c0, pulse);
-        g.drawCircle(cx, cy, cell * 0.4);
+        // 中心翡翠珠 + 白芯
+        g.beginFill(0x34c98f, 0.95);
+        g.drawCircle(cx, cy, cell * 0.36);
         g.endFill();
-        g.beginFill(0xffd76a, 0.95);
-        g.drawCircle(cx, cy, cell * 0.2);
+        g.beginFill(0xeafff4, 0.9);
+        g.drawCircle(cx, cy, cell * 0.13);
         g.endFill();
       }
     }

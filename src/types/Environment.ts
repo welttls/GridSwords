@@ -4,6 +4,8 @@ export interface WorldConfig {
   height: number;
   foodMax: number;
   foodRegenRate: number;   // 每 tick 生成概率
+  /** v2.8.0：本局剑域地图 id（见 data/MapDB；缺省 = 荒域） */
+  mapId?: string;
   currentDay: number;
   dayTickLimit: number;    // 每天 tick 数
   isShrinking: boolean;    // 第10天天劫收束

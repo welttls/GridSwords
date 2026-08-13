@@ -24,32 +24,48 @@ export const FORMATION_TIPS: Record<FormationBrush, string> = {
   clear: '恢复地形：一次清除 3×3 范围内熔岩/深水，还原为平地（不限次数）',
 };
 
+/** v2.8.0：炉材常驻按钮数据 */
+export interface MaterialItem {
+  id: string;
+  name: string;
+  count: number;
+  unlocked: boolean;
+  desc: string;
+  lock: string;
+}
+
+/** v2.8.1：武装型炉材 id——使用后需点击剑域操作（天雷引雷 / 奇遇灵种种下） */
+const ARMED_MATERIALS = new Set(['thunder_potion', 'encounter_seed']);
+
 /**
  * 炼剑主界面 HUD (DOM)：顶栏信息、种群基因直方图、事件日志、时间控制。
  */
 export class HUD {
   host: HTMLElement;
   private canvasHostEl!: HTMLElement;
+  private titleEl!: HTMLElement; // v2.8.0：顶栏标题（显示当前剑域名）
   private dayEl!: HTMLElement;
   private popEl!: HTMLElement;
   private tickEl!: HTMLElement;
   private histContainer!: HTMLElement;
   private logContainer!: HTMLElement;
   private speedEl!: HTMLElement;
-  private materialBtn!: HTMLButtonElement;
   private feedBtn!: HTMLButtonElement;
   private tideBtn!: HTMLButtonElement;
   private reseedBtn!: HTMLButtonElement;
-  private formationBtn!: HTMLButtonElement;
   /** v2.6.1：音律按钮（背景乐/音效 开关+滑块合一，由 Game 接线） */
   private soundBtn!: HTMLButtonElement;
-  /** v2.3.0：布阵工具栏 */
-  private formationBar!: HTMLElement;
-  private formationBrushBtns!: Record<FormationBrush, HTMLButtonElement>;
-  private formationExitBtn!: HTMLButtonElement;
-  private formationOnBrush: ((b: FormationBrush) => void) | null = null;
-  private formationOnExit: (() => void) | null = null;
-  private formationHooked = false;
+  /** v2.8.0：常驻操作条——剑域气象 / 炉材 / 布阵笔刷 */
+  private auraEl!: HTMLElement;
+  private matGridEl!: HTMLElement;
+  private canvasSlotEl!: HTMLElement;
+  private brushEls!: Record<FormationBrush, HTMLButtonElement>;
+  private brushOnPick: ((b: FormationBrush) => void) | null = null;
+  private brushHooked = false;
+  private matHooked = false;
+  private matUse: ((id: string) => void) | null = null;
+  private matBtns = new Map<string, HTMLButtonElement>();
+  private lastAuraKey = '';
   private chartEls: { label: string; color: string; bars: HTMLElement[] }[] = [];
   /** 剑域构成分类 (v1.10.0)：五行文本元素 + 本命/外来 */
   private compElems!: { key: Element; el: HTMLElement }[];
@@ -58,7 +74,6 @@ export class HUD {
   /** 日志筛选：all=全部 / important=仅重要 */
   private logFilter: 'all' | 'important' = 'all';
   /** v2.2.1：上次写入值缓存——仅变化时才写 DOM（原每帧写入 ~300 次/秒） */
-  private lastFurnaceEnabled: boolean | null = null;
   private lastFeedRemaining: number | null = null;
 
   /** 日志中「聚焦剑意」的回调 */
@@ -78,8 +93,18 @@ export class HUD {
     eventBus.off(EVT.LOG, this.logHandler);
   }
 
+  /** v2.8.0：显示本局剑域名（如「剑 域 · 熔岩炼狱」） */
+  setMapName(name: string): void {
+    this.titleEl.textContent = `剑 域 · ${name}`;
+  }
+
   get canvasHost(): HTMLElement {
     return this.canvasHostEl;
+  }
+
+  /** v2.8.1：画布挂载槽（两侧栏之间的中央画布容器） */
+  get canvasSlot(): HTMLElement {
+    return this.canvasSlotEl;
   }
 
   private build(): void {
@@ -88,6 +113,7 @@ export class HUD {
     // —— 顶栏 ——
     const topbar = el('div', 'topbar');
     const title = el('div', 'title', '剑 域');
+    this.titleEl = title;
     const dayEl = el('div', 'stat', '—');
     const popEl = el('div', 'stat', '—');
     const tickEl = el('div', 'stat', '—');
@@ -131,22 +157,27 @@ export class HUD {
     const canvasHost = el('div', 'canvas-host');
     this.canvasHostEl = canvasHost;
 
-    // v2.3.0：布阵工具栏（默认隐藏；编辑模式下显示于画布上方）
-    const fbar = el('div', 'formation-bar hidden');
-    this.formationBar = fbar;
-    fbar.appendChild(el('span', 'fb-title', '剑域布阵'));
-    this.formationBrushBtns = {} as Record<FormationBrush, HTMLButtonElement>;
+    // v2.8.1：剑域气象/炉材/布阵分列画布两侧——左=剑域气象，右=炉材+布阵（不再堆在画布上方）
+    const sideLeft = el('div', 'side-left');
+    this.auraEl = el('div', 'aura');
+    sideLeft.appendChild(this.auraEl);
+    const canvasWrap = el('div', 'canvas-wrap');
+    this.canvasSlotEl = canvasWrap;
+    const sideRight = el('div', 'side-right');
+    this.matGridEl = el('div', 'mat-grid');
+    sideRight.appendChild(this.matGridEl);
+    const brushGroup = el('div', 'brush-group');
+    brushGroup.appendChild(el('span', 'brush-title', '布阵'));
+    this.brushEls = {} as Record<FormationBrush, HTMLButtonElement>;
+    const BRUSH_LABELS: Record<FormationBrush, string> = { lava: '🔥 熔岩', deepwater: '🌊 深水', clear: '🧹 恢复' };
     for (const b of FORMATION_BRUSHES) {
-      const btn = el('button', 'fb-brush tip', '') as HTMLButtonElement;
-      btn.dataset.brush = b;
+      const btn = el('button', 'brush-btn tip', BRUSH_LABELS[b]) as HTMLButtonElement;
       btn.dataset.tip = FORMATION_TIPS[b];
-      this.formationBrushBtns[b] = btn;
-      fbar.appendChild(btn);
+      this.brushEls[b] = btn;
+      brushGroup.appendChild(btn);
     }
-    const exitBtn = el('button', 'btn btn-ghost fb-exit', '✕ 退出') as HTMLButtonElement;
-    this.formationExitBtn = exitBtn;
-    fbar.appendChild(exitBtn);
-    canvasHost.appendChild(fbar);
+    sideRight.appendChild(brushGroup);
+    canvasHost.append(sideLeft, canvasWrap, sideRight);
 
     const panel = el('aside', 'side-panel');
 
@@ -192,14 +223,6 @@ export class HUD {
     feedBtn.id = 'feed-btn';
     feedBtn.dataset.tip = '布霖庚金之气：在剑域随机落下 3 团庚金（每日 12 团配额，随时可施）。剑意采食回能、积满分化。';
     this.feedBtn = feedBtn;
-    const materialBtn = el('button', 'btn btn-gold tip', '炉材') as HTMLButtonElement;
-    materialBtn.id = 'material-btn';
-    materialBtn.dataset.tip = '炉府材料：以次数使用，永久改变剑域气象（庚金生成、身法、节气、突变偏向、天雷、奇遇灵种等）。';
-    this.materialBtn = materialBtn;
-    const formationBtn = el('button', 'btn btn-ghost tip', '布阵') as HTMLButtonElement;
-    formationBtn.id = 'formation-btn';
-    formationBtn.dataset.tip = '剑域布阵：暂停走时编辑地形——熔岩（踏入即崩解）、深水（减速耗神）、恢复（清除地形），均不限次数。';
-    this.formationBtn = formationBtn;
     const tideBtn = el('button', 'btn btn-ghost tip', '剑潮') as HTMLButtonElement;
     tideBtn.id = 'tide-btn';
     tideBtn.dataset.tip = '剑潮偏好：调整每日子时投放的游离剑意类型，下次子时生效。';
@@ -212,8 +235,7 @@ export class HUD {
     const soundBtn = el('button', 'btn btn-ghost tip', '音律') as HTMLButtonElement;
     soundBtn.dataset.tip = '音律：背景乐与音效的开关、音量滑块——两个同在一处调节。';
     this.soundBtn = soundBtn;
-    const hint = el('span', 'hint', '布霖随时可施 · 炉材以次数计');
-    footer.append(feedBtn, materialBtn, formationBtn, tideBtn, reseedBtn, soundBtn, hint);
+    footer.append(feedBtn, tideBtn, reseedBtn, soundBtn);
 
     main.append(canvasHost, panel);
     this.host.append(main, footer);
@@ -328,13 +350,6 @@ export class HUD {
     );
   }
 
-  setFurnaceEnabled(enabled: boolean): void {
-    if (enabled === this.lastFurnaceEnabled) return; // v2.2.1：值未变不写 DOM
-    this.lastFurnaceEnabled = enabled;
-    this.materialBtn.disabled = !enabled;
-    this.materialBtn.classList.toggle('dimmed', !enabled);
-  }
-
   setFeedState(remaining: number, onFeed: () => void): void {
     if (remaining === this.lastFeedRemaining) return; // v2.2.1：值未变不写 DOM
     this.lastFeedRemaining = remaining;
@@ -345,10 +360,6 @@ export class HUD {
       this.feedBtn.dataset.hooked = '1';
       this.feedBtn.addEventListener('click', onFeed);
     }
-  }
-
-  onMaterialClick(fn: () => void): void {
-    this.materialBtn.addEventListener('click', fn);
   }
 
   /** 剑潮偏好按钮 (v1.11.0) */
@@ -366,39 +377,60 @@ export class HUD {
     this.soundBtn.addEventListener('click', fn);
   }
 
-  /** v2.3.0：布阵按钮 */
-  onFormationClick(fn: () => void): void {
-    this.formationBtn.addEventListener('click', fn);
+  /** v2.8.0：剑域气象常驻（无修正时显示「风平浪静」；值未变不写 DOM） */
+  setAura(lines: string[]): void {
+    const key = lines.join('|');
+    if (key === this.lastAuraKey) return;
+    this.lastAuraKey = key;
+    clearNode(this.auraEl);
+    this.auraEl.appendChild(el('span', 'aura-title', '剑域气象'));
+    if (lines.length === 0) {
+      this.auraEl.appendChild(el('span', 'aura-line', '风平浪静'));
+    } else {
+      for (const l of lines) this.auraEl.appendChild(el('span', 'aura-line', l));
+    }
   }
 
-  /** v2.3.0：进入/退出布阵模式（显示/隐藏工具栏 + 高亮按钮；v2.6.0 起无布阵次数） */
-  setFormationMode(active: boolean, activeBrush: FormationBrush, onBrush: (b: FormationBrush) => void, onExit: () => void): void {
-    this.formationOnBrush = onBrush;
-    this.formationOnExit = onExit;
-    this.formationBar.classList.toggle('hidden', !active);
-    this.formationBtn.classList.toggle('active', !!active);
-    this.formationBtn.textContent = active ? '布阵中' : '布阵';
-    if (active) this.updateFormation(activeBrush);
-    if (!this.formationHooked) {
-      this.formationHooked = true;
-      for (const b of FORMATION_BRUSHES) {
-        this.formationBrushBtns[b].addEventListener('click', () => this.formationOnBrush?.(b));
+  /** v2.8.0：炉材常驻按钮（首次构建，后续只刷新次数/禁用态） */
+  setMaterials(items: MaterialItem[], onUse: (id: string) => void): void {
+    if (!this.matHooked) {
+      this.matHooked = true;
+      this.matUse = onUse;
+      for (const it of items) {
+        const btn = el('button', 'mat-btn tip') as HTMLButtonElement;
+        btn.dataset.tip = `${it.desc}${it.lock ? `（${it.lock} 解锁）` : ''}`;
+        btn.appendChild(el('span', 'mat-count', `${it.name} ×${it.count}`));
+        // v2.8.1：武装型炉材（使用后需点击剑域操作）加视觉区分 + 徽章提示
+        if (ARMED_MATERIALS.has(it.id)) {
+          btn.classList.add('armed');
+          btn.appendChild(el('span', 'mat-badge', it.id === 'thunder_potion' ? '点击引雷' : '点击种下'));
+        }
+        btn.addEventListener('click', () => {
+          const cur = this.matBtns.get(it.id);
+          if (cur && !cur.classList.contains('locked')) this.matUse?.(it.id);
+        });
+        this.matBtns.set(it.id, btn);
+        this.matGridEl.appendChild(btn);
       }
-      this.formationExitBtn.addEventListener('click', () => this.formationOnExit?.());
+    }
+    for (const it of items) {
+      const btn = this.matBtns.get(it.id);
+      if (!btn) continue;
+      const countEl = btn.querySelector('.mat-count');
+      if (countEl) countEl.textContent = `${it.name} ×${it.count}`;
+      btn.classList.toggle('locked', it.count <= 0 || !it.unlocked);
     }
   }
 
-  /** v2.3.0：刷新布阵工具栏（当前笔刷高亮；熔岩/深水/恢复均不限次） */
-  updateFormation(activeBrush: FormationBrush): void {
-    const labels: Record<FormationBrush, string> = {
-      lava: '🔥 熔岩',
-      deepwater: '🌊 深水',
-      clear: '🧹 恢复',
-    };
-    for (const b of FORMATION_BRUSHES) {
-      const btn = this.formationBrushBtns[b];
-      btn.textContent = labels[b];
-      btn.classList.toggle('active', b === activeBrush);
+  /** v2.8.0：布阵笔刷常驻（选中高亮；null=未武装） */
+  setBrush(brush: FormationBrush | null, onPick: (b: FormationBrush) => void): void {
+    if (!this.brushHooked) {
+      this.brushHooked = true;
+      this.brushOnPick = onPick;
+      for (const b of FORMATION_BRUSHES) {
+        this.brushEls[b].addEventListener('click', () => this.brushOnPick?.(b));
+      }
     }
+    for (const b of FORMATION_BRUSHES) this.brushEls[b].classList.toggle('active', b === brush);
   }
 }
